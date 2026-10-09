@@ -1,4 +1,15 @@
+<div align="center">
+
 # Kandil
+
+An application launcher for KDE Plasma 6 based on KRunner
+
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+![KDE Plasma 6](https://img.shields.io/badge/KDE%20Plasma-6-1d99f3?logo=kde&logoColor=white)
+![Wayland](https://img.shields.io/badge/Wayland-required-ffbc00?logo=wayland&logoColor=white)
+![Languages](https://img.shields.io/badge/languages-31-success)
+
+</div>
 
 Kandil is an application launcher for KDE Plasma 6. It uses KRunner's search
 engine, so it returns the same results as KRunner and works with the same
