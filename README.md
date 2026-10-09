@@ -19,6 +19,8 @@ KRunner's interface is compiled into the program in Plasma 6 and cannot be
 changed with themes. Kandil was written to have a launcher with a different
 layout and a few extra features while keeping KRunner's search.
 
+The code was written by Claude Opus 5.5.
+
 <img src="docs/screenshots/hero.png" alt="Kandil with search results" width="820">
 
 ## Features
@@ -242,7 +244,7 @@ Bug reports can be filed at https://github.com/Vialeth/kandil/issues.
 ## Credits
 
 Kandil is built on KRunner, Milou, Kirigami and LayerShellQt from the KDE
-community. The code was written with Claude Opus 5.5.
+community. The code was written by Claude Opus 5.5.
 
 ## License
 
