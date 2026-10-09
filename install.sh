@@ -89,7 +89,7 @@ while [ $# -gt 0 ]; do
     shift
 done
 
-printf '\n  %s🪔 Kandil%s %s\n\n' "$B" "$R" "$(t "installer" "kurulumu")"
+printf '\n  %sKandil%s %s\n\n' "$B" "$R" "$(t "installer" "kurulumu")"
 
 # ── 1. System checks ─────────────────────────────────────────────────
 step "$(t "Checking the system" "Sistem denetleniyor")"
@@ -367,7 +367,7 @@ fi
 
 # ── Done ─────────────────────────────────────────────────────────────
 version="$(python3 -I "$APP_DIR/kandil.py" --version)"
-printf '\n  %s%s🪔 Kandil %s %s%s\n\n' "$GRN" "$B" "$version" "$(t "is ready." "hazır.")" "$R"
+printf '\n  %s%sKandil %s %s%s\n\n' "$GRN" "$B" "$version" "$(t "is ready." "hazır.")" "$R"
 if [ -n "$SHORTCUT" ] && [ "$SHORTCUT" != none ]; then
     printf '  %s\n' "$(t "Press $SHORTCUT to open it." "Açmak için $SHORTCUT tuşlarına basın.")"
 fi

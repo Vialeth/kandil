@@ -67,7 +67,7 @@ remove() {
     fi
 }
 
-printf '\n  %s🪔 Kandil%s %s\n\n' "$B" "$R" "$(t "uninstaller" "kaldırma")"
+printf '\n  %sKandil%s %s\n\n' "$B" "$R" "$(t "uninstaller" "kaldırma")"
 
 if [ "$KEEP_DATA" = 1 ]; then
     summary="$(t "Kandil will be removed. Your settings and history will be kept." \
