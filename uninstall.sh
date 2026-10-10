@@ -118,6 +118,7 @@ remove "$CONFIG_HOME/systemd/user/kandil.service"
 remove "$CONFIG_HOME/systemd/user/graphical-session.target.wants/kandil.service"
 remove "$DATA_HOME/dbus-1/services/$APP_ID.service"
 remove "$DATA_HOME/applications/kandil.desktop"
+remove "$DATA_HOME/applications/kandil-settings.desktop"
 remove "$HOME/.local/bin/kandil-toggle"
 remove "$APP_DIR"
 remove "$CACHE_HOME/kandil"          # Qt's QML and graphics pipeline cache

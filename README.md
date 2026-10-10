@@ -121,7 +121,8 @@ entry between them opens the settings.
 
 A settings window covers the appearance, animations, behavior, prefixes,
 search engines, AI providers and commands, and each page explains how the
-feature is used. Changes apply immediately. The interface is translated into
+feature is used. It can be found by typing `kandil` or from the application
+menu. Changes apply immediately. The interface is translated into
 31 languages, including right-to-left layouts.
 
 <img src="docs/screenshots/settings.png" alt="Settings window" width="720">
@@ -177,6 +178,10 @@ settings.
 Press Alt+Space, type a query and press Enter. Typing `?` in the empty search
 field shows the list of prefixes and keyboard shortcuts. The entry between the
 two opens the settings.
+
+The settings are also installed as an application named "Kandil Settings", so
+they can be opened by typing `kandil` in Kandil or KRunner, from the application
+menu, or with `kandil-toggle --settings`.
 
 ### Prefixes
 

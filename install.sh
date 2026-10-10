@@ -301,17 +301,23 @@ ok "$APP_DIR"
 
 cat > "$TOGGLE" <<EOF
 #!/bin/sh
-# Opens or closes Kandil. With an argument, opens it with that text.
+# Opens or closes Kandil. With --settings, opens the settings window;
+# with other arguments, opens Kandil with that text.
 dest=$APP_ID
-if [ \$# -gt 0 ]; then method=query; else method=toggle; fi
+case "\$1" in
+    --settings) method=settings ;;
+    "") method=toggle ;;
+    *) method=query ;;
+esac
 if command -v busctl >/dev/null; then
-    if [ \$# -gt 0 ]; then exec busctl --user call \$dest / \$dest query s "\$*"; fi
-    exec busctl --user call \$dest / \$dest toggle
+    if [ \$method = query ]; then exec busctl --user call \$dest / \$dest query s "\$*"; fi
+    exec busctl --user call \$dest / \$dest \$method
 elif command -v gdbus >/dev/null; then
-    if [ \$# -gt 0 ]; then exec gdbus call --session -d \$dest -o / -m \$dest.query "\$*" >/dev/null; fi
-    exec gdbus call --session -d \$dest -o / -m \$dest.toggle >/dev/null
+    if [ \$method = query ]; then exec gdbus call --session -d \$dest -o / -m \$dest.query "\$*" >/dev/null; fi
+    exec gdbus call --session -d \$dest -o / -m \$dest.\$method >/dev/null
 else
-    exec qdbus6 \$dest / \$dest.\$method "\$@"
+    if [ \$method = query ]; then exec qdbus6 \$dest / \$dest.query "\$*"; fi
+    exec qdbus6 \$dest / \$dest.\$method
 fi
 EOF
 chmod +x "$TOGGLE"
@@ -356,12 +362,42 @@ NoDisplay=true
 StartupNotify=false
 X-KDE-Shortcuts=$SHORTCUT
 EOF
+# The settings window as an application, so that it can be found in Kandil, KRunner and the
+# application menu. The names come from the translation files.
+{
+    echo "[Desktop Entry]"
+    echo "Type=Application"
+    python3 -I - "$APP_DIR/i18n" <<'PY'
+import json, os, sys
+d = sys.argv[1]
+names = {}
+for f in sorted(os.listdir(d)):
+    if f.endswith(".json"):
+        with open(os.path.join(d, f), encoding="utf-8") as fh:
+            names[f[:-5]] = json.load(fh).get("settings.title", "")
+print("Name=" + names.get("en", "Kandil Settings"))
+for code, name in names.items():
+    if code != "en" and name and name != names.get("en"):
+        print(f"Name[{code}]={name}")
+PY
+    echo "Comment=Configure the Kandil launcher"
+    echo "Comment[tr]=Kandil başlatıcısını yapılandır"
+    echo "Keywords=kandil;launcher;settings;preferences;configure;options;"
+    echo "Keywords[tr]=kandil;başlatıcı;ayarlar;tercihler;yapılandır;seçenekler;"
+    echo "Icon=configure"
+    echo "Exec=$TOGGLE --settings"
+    echo "Categories=Settings;"
+    echo "StartupNotify=false"
+} > "$DESKTOP_DIR/kandil-settings.desktop"
+
 # Let KDE index the new .desktop file now, so that it does not reset the shortcut later
 command -v kbuildsycoca6 >/dev/null && kbuildsycoca6 >/dev/null 2>&1 || true
 ok "$(t "Service, D-Bus activation and shortcut entry" "Servis, D-Bus etkinleştirme ve kısayol girdisi")"
 
 systemctl --user daemon-reload
-systemctl --user enable --now kandil.service >/dev/null 2>&1 \
+# restart, not just start: an update must replace the running version
+systemctl --user enable kandil.service >/dev/null 2>&1
+systemctl --user restart kandil.service >/dev/null 2>&1 \
     || die "$(t "The service could not be started. See: journalctl --user -u kandil" \
                 "Servis başlatılamadı. Bakınız: journalctl --user -u kandil")"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
