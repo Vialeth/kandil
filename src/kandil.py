@@ -14,6 +14,8 @@ Komut satırı (kurulum/kaldırma betikleri kullanır):
 import copy
 import ctypes
 import glob
+import hashlib
+import html
 import json
 import os
 import re
@@ -25,9 +27,10 @@ import time
 import shiboken6
 from PySide6.QtCore import (ClassInfo, QDir, QFileInfo, QFileSystemWatcher, QLibraryInfo, QLocale, QMargins,
                             QMimeDatabase, QObject, QPluginLoader, QProcess, QRect, QSettings, QStandardPaths,
-                            QTimer, QUrl, Signal, Slot)
-from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence, QRegion
+                            Qt, QTimer, QUrl, Signal, Slot)
+from PySide6.QtGui import QDesktopServices, QIcon, QImage, QKeySequence, QRegion
 from PySide6.QtDBus import QDBusConnection, QDBusInterface
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent, QQmlEngine
 from PySide6.QtWidgets import QApplication
 
@@ -41,6 +44,8 @@ HISTORY_LIMIT = 200
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "kandil")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "kandil")
+FAVICON_DIR = os.path.join(CACHE_DIR, "favicons")
 SHORTCUTS_FILE = "kglobalshortcutsrc"
 DESKTOP_ID = "kandil.desktop"
 RTL_LANGUAGES = {"ar", "fa", "he"}
@@ -50,10 +55,35 @@ BUILTIN_MODES = [
     {"id": "files", "key": "f", "runner": "baloosearch", "icon": "folder-documents"},
     {"id": "windows", "key": "w", "runner": "windows", "icon": "window"},
     {"id": "apps", "key": "a", "runner": "krunner_services", "icon": "applications-all"},
-    {"id": "settings", "key": "s", "runner": "krunner_systemsettings", "icon": "preferences-system"},
+    {"id": "settings", "key": "ss", "runner": "krunner_systemsettings", "icon": "preferences-system"},
+    {"id": "web", "key": "s", "runner": ":web", "icon": "internet-web-browser"},
     {"id": "calc", "key": "=", "runner": "calculator", "icon": "accessories-calculator"},
     {"id": "clipboard", "key": "c", "runner": ":clipboard", "icon": "klipper"},
     {"id": "command", "key": ">", "runner": ":command", "icon": "utilities-terminal"},
+]
+
+# Web araması (Brave Search). Sonuçlar sayfaya gömülü veri bloğundan okunur; bu blok
+# Brave Search API'siyle aynı alan adlarını (title, url, description) kullanır.
+WEB_SEARCH_URL = "https://search.brave.com/search"
+WEB_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0"
+WEB_RESULT_LIMIT = 10
+_JS_STR = r'"((?:[^"\\]|\\.)*)"'
+BRAVE_RESULT_RE = re.compile(r"\{title:" + _JS_STR + r",url:" + _JS_STR
+                             + r",(?:full_title:[^,]*,)?description:(?:" + _JS_STR + r"|void 0)")
+BRAVE_FAVICON_RE = re.compile(r'data-type="web".*?<a href="([^"]+)".*?<img[^>]*?'
+                              r'src="(https://imgs\.search\.brave\.com/[^"]+)"', re.S)
+TAG_RE = re.compile(r"<[^>]+>")
+
+# Anahtar kelimeyle çalışan arama motorları ("gg ubuntu"). Adresteki %s arama terimiyle değiştirilir.
+DEFAULT_SEARCH_ENGINES = [
+    {"id": "google", "key": "gg", "name": "Google", "url": "https://www.google.com/search?q=%s"},
+    {"id": "youtube", "key": "yt", "name": "YouTube", "url": "https://www.youtube.com/results?search_query=%s"},
+    {"id": "wikipedia", "key": "wiki", "name": "Wikipedia", "url": "https://en.wikipedia.org/w/index.php?search=%s"},
+    {"id": "maps", "key": "maps", "name": "Google Maps", "url": "https://www.google.com/maps/search/%s"},
+    {"id": "amazon", "key": "ama", "name": "Amazon", "url": "https://www.amazon.com/s?k=%s"},
+    {"id": "ebay", "key": "eb", "name": "eBay", "url": "https://www.ebay.com/sch/i.html?_nkw=%s"},
+    {"id": "github", "key": "gh", "name": "GitHub", "url": "https://github.com/search?q=%s"},
+    {"id": "duckduckgo", "key": "ddg", "name": "DuckDuckGo", "url": "https://duckduckgo.com/?q=%s"},
 ]
 
 # Ayar dosyasında olmayan anahtarlar bu değerlerle tamamlanır.
@@ -93,6 +123,8 @@ DEFAULT_CONFIG = {
     # Önekler
     "helpKey": "?",
     "modes": [dict(m, enabled=True) for m in BUILTIN_MODES],
+    # Arama motorları
+    "searchEngines": [dict(e, enabled=True) for e in DEFAULT_SEARCH_ENGINES],
 }
 
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
@@ -104,6 +136,9 @@ def merge_modes(user_modes):
     """Kullanıcının mod listesini yerleşik modlarla birleştirir: yerleşiklerde yalnızca
     önek ve etkinlik kullanıcıdan alınır, özel modlar olduğu gibi korunur."""
     by_id = {m.get("id"): m for m in user_modes if isinstance(m, dict) and m.get("id")}
+    # Web modu "s" önekini aldığında Sistem Ayarları eski varsayılanı "s"'den "ss"'ye geçer
+    if by_id and "web" not in by_id and by_id.get("settings", {}).get("key") == "s":
+        by_id["settings"] = dict(by_id["settings"], key="ss")
     merged = []
     for b in BUILTIN_MODES:
         u = by_id.pop(b["id"], {})
@@ -114,6 +149,20 @@ def merge_modes(user_modes):
                            "icon": m.get("icon", "search"), "label": m.get("label", m["runner"]),
                            "enabled": bool(m.get("enabled", True)), "custom": True})
     return merged
+
+
+def clean_engines(engines):
+    """Ayar dosyasındaki arama motorlarından eksik ya da bozuk olanları ayıklar."""
+    out = []
+    for i, e in enumerate(engines):
+        if not isinstance(e, dict):
+            continue
+        key, url = str(e.get("key", "")).strip(), str(e.get("url", "")).strip()
+        if not key or not url.startswith(("http://", "https://")):
+            continue
+        out.append({"id": str(e.get("id") or f"engine-{i}"), "key": key, "name": str(e.get("name") or key),
+                    "url": url, "enabled": bool(e.get("enabled", True))})
+    return out
 
 
 def migrate_prefixes(old):
@@ -157,7 +206,48 @@ def load_config():
             continue
         config[key] = value
     config["modes"] = merge_modes(config["modes"])
+    config["searchEngines"] = clean_engines(config["searchEngines"])
     return config
+
+
+# ── Web araması ──────────────────────────────────────────────────────
+def _js_string(s):
+    try:
+        return json.loads('"' + s + '"')
+    except ValueError:
+        return s
+
+
+def _plain(s):
+    return " ".join(html.unescape(TAG_RE.sub("", s)).split())
+
+
+def parse_brave(page, limit=WEB_RESULT_LIMIT):
+    start = page.find('web:{type:"search"')
+    if start < 0:
+        return []
+    favicons = {html.unescape(u): f for u, f in BRAVE_FAVICON_RE.findall(page)}
+    out, seen = [], set()
+    for m in BRAVE_RESULT_RE.finditer(page, start):
+        # Haber, video gibi diğer bloklar da aynı alanlara sahip; yalnızca web sonuçları alınır
+        nxt = page.find("{title:", m.end())
+        if 'type:"search_result"' not in page[m.end():nxt if nxt > 0 else None]:
+            continue
+        url = _js_string(m.group(2))
+        if url in seen or not url.startswith(("http://", "https://")):
+            continue
+        seen.add(url)
+        out.append({"title": _plain(_js_string(m.group(1))), "url": url,
+                    "description": _plain(_js_string(m.group(3) or "")), "favicon": favicons.get(url, "")})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def web_search_url(query):
+    url = QUrl(WEB_SEARCH_URL)
+    url.setQuery("q=" + QUrl.toPercentEncoding(query).data().decode() + "&source=web")
+    return url
 
 
 # ── Çeviriler ────────────────────────────────────────────────────────
@@ -175,6 +265,18 @@ def available_languages():
 
 # Sistem dili, LANGUAGE değişkeni Kandil tarafından değiştirilmeden önce saklanır.
 SYSTEM_UI_LANGUAGES = []
+
+
+def env_ui_languages():
+    # QLocale.system() burada kullanılmaz: Qt sistem yerel ayarını ilk okumada önbelleğe alır,
+    # sonradan LANGUAGE değiştirilse bile KRunner eklentileri ve ksycoca eski dilde kalır.
+    names = [n for n in os.environ.get("LANGUAGE", "").split(":") if n]
+    for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+        value = os.environ.get(var, "")
+        if value:
+            names.append(value)
+            break
+    return [n.split(".")[0].split("@")[0] for n in names if n not in ("C", "POSIX")]
 
 
 def resolve_language(setting):
@@ -451,6 +553,8 @@ class Controller(QObject):
     configChanged = Signal("QVariantMap")
     stringsChanged = Signal("QVariantMap")
     commandFinished = Signal(str, int, bool, float)     # çıktı, çıkış kodu, zaman aşımı, süre (sn)
+    webResults = Signal(str, "QVariantList", str)        # sorgu, sonuçlar, hata
+    faviconReady = Signal(str)                          # site adı (host)
 
     def __init__(self):
         super().__init__()
@@ -474,6 +578,11 @@ class Controller(QObject):
         self.watcher.directoryChanged.connect(lambda _: self.reload_timer.start())
 
         self.klipper = QDBusInterface("org.kde.klipper", "/klipper", "org.kde.klipper.klipper")
+
+        self.network = QNetworkAccessManager(self)
+        self.web_reply = None
+        self.web_cache = {}
+        self.favicon_pending = set()
 
     def t(self, key, *args):
         s = self.strings.get(key, key)
@@ -696,6 +805,89 @@ class Controller(QObject):
     def copyText(self, text):
         self.klipper.call("setClipboardContents", text)
 
+    # ── Web araması ──────────────────────────────────────────────────
+    @Slot(str)
+    def webSearch(self, query):
+        query = query.strip()
+        self.cancelWebSearch()
+        if not query:
+            return
+        if query in self.web_cache:
+            self.webResults.emit(query, self.web_cache[query], "")
+            return
+        request = QNetworkRequest(web_search_url(query))
+        request.setHeader(QNetworkRequest.UserAgentHeader, WEB_USER_AGENT)
+        request.setRawHeader(b"Accept-Language", f"{self.language.replace('_', '-')},en;q=0.8".encode())
+        request.setTransferTimeout(10000)
+        reply = self.network.get(request)
+        self.web_reply = reply
+
+        def on_finished():
+            reply.deleteLater()
+            if self.web_reply is not reply:
+                return
+            self.web_reply = None
+            if reply.error() != QNetworkReply.NoError:
+                self.webResults.emit(query, [], reply.errorString())
+                return
+            results = parse_brave(bytes(reply.readAll().data()).decode("utf-8", errors="replace"))
+            if results:
+                if len(self.web_cache) >= 50:
+                    self.web_cache.pop(next(iter(self.web_cache)))
+                self.web_cache[query] = results
+            self.webResults.emit(query, results, "")
+
+        reply.finished.connect(on_finished)
+
+    @Slot()
+    def cancelWebSearch(self):
+        if self.web_reply is not None:
+            reply, self.web_reply = self.web_reply, None
+            reply.abort()
+
+    @Slot(str, result=str)
+    def webSearchPage(self, query):
+        return web_search_url(query.strip()).toString(QUrl.FullyEncoded)
+
+    @Slot(result="QVariantList")
+    def defaultSearchEngines(self):
+        return copy.deepcopy(DEFAULT_CONFIG["searchEngines"])
+
+    # Site simgeleri bir kez indirilip önbellekte PNG olarak saklanır. Simge henüz yoksa boş
+    # döner ve indirme başlar; bitince faviconReady ile arayüz yeniden sorar.
+    @Slot(str, result=str)
+    def favicon(self, url):
+        host = QUrl(url).host()
+        if not host:
+            return ""
+        path = os.path.join(FAVICON_DIR, hashlib.sha1(host.encode()).hexdigest() + ".png")
+        if os.path.exists(path):
+            return QUrl.fromLocalFile(path).toString()
+        if host not in self.favicon_pending:
+            self.favicon_pending.add(host)
+            request = QNetworkRequest(QUrl(f"https://{host}/favicon.ico"))
+            request.setHeader(QNetworkRequest.UserAgentHeader, WEB_USER_AGENT)
+            request.setTransferTimeout(10000)
+            reply = self.network.get(request)
+
+            def on_finished():
+                reply.deleteLater()
+                image = QImage()
+                if reply.error() == QNetworkReply.NoError and image.loadFromData(reply.readAll()):
+                    os.makedirs(FAVICON_DIR, exist_ok=True)
+                    if image.width() > 64:
+                        image = image.scaledToWidth(64, Qt.SmoothTransformation)
+                    if image.save(path, "PNG"):
+                        self.faviconReady.emit(host)
+                # Başarısız olursa bu oturumda yeniden denenmez (host kümede kalır)
+
+            reply.finished.connect(on_finished)
+        return ""
+
+    @Slot(str)
+    def openUrl(self, url):
+        QDesktopServices.openUrl(QUrl(url))
+
     # ── Komut çalıştırma ─────────────────────────────────────────────
     @Slot(str)
     def runCommand(self, command):
@@ -813,7 +1005,7 @@ def main():
         return code
 
     # KRunner eklentilerinin (uygulamalar, hesap makinesi vb.) dili de Kandil'in diline uyar.
-    SYSTEM_UI_LANGUAGES.extend(QLocale.system().uiLanguages())
+    SYSTEM_UI_LANGUAGES.extend(env_ui_languages())
     language = load_config()["language"]
     if language != "system":
         os.environ["LANGUAGE"] = resolve_language(language)

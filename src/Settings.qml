@@ -63,11 +63,34 @@ QQC2.ApplicationWindow {
         return m.custom ? (m.label || m.runner) : tr("mode." + m.id)
     }
 
+    // Önek ve arama motoru anahtarları aynı alanı paylaşır; çakışmada önek önce gelir
     function keyConflict(i) {
         const m = cfg.modes[i]
         if (!m.enabled || !m.key) return false
         if (m.key === cfg.helpKey) return true
         return cfg.modes.some((o, j) => j !== i && o.enabled && o.key === m.key)
+            || cfg.searchEngines.some(e => e.enabled && e.key === m.key)
+    }
+
+    function engineConflict(i) {
+        const e = cfg.searchEngines[i]
+        if (!e.enabled || !e.key) return false
+        if (e.key === cfg.helpKey) return true
+        return cfg.modes.some(m => m.enabled && m.key === e.key)
+            || cfg.searchEngines.some((o, j) => j !== i && o.enabled && o.key === e.key)
+    }
+
+    function updateEngine(i, patch) {
+        const es = cfg.searchEngines.map(e => Object.assign({}, e))
+        Object.assign(es[i], patch)
+        setv("searchEngines", es)
+    }
+
+    // Site simgeleri indirildikçe yeniden sorulur
+    property int faviconTick: 0
+    function engineIcon(url) {
+        faviconTick
+        return controller.favicon(url) || "internet-web-browser"
     }
 
     function refreshState() {
@@ -95,6 +118,7 @@ QQC2.ApplicationWindow {
             if (!win.dirty) win.cfg = c
             win.needsRestart = win.controller.needsRestart()
         }
+        function onFaviconReady(host) { win.faviconTick++ }
         function onStringsChanged(s) {
             win.strings = s
             win.rtl = win.controller.isRtl()
@@ -108,6 +132,7 @@ QQC2.ApplicationWindow {
         { id: "animation", icon: "preferences-desktop-effects" },
         { id: "behavior", icon: "preferences-system-windows-behavior" },
         { id: "prefixes", icon: "input-keyboard" },
+        { id: "engines", icon: "internet-web-browser" },
         { id: "command", icon: "utilities-terminal" },
         { id: "data", icon: "document-save" },
         { id: "about", icon: "help-about" }
@@ -496,6 +521,117 @@ QQC2.ApplicationWindow {
                                 win.setv("modes", win.controller.defaultModes())
                                 win.setv("helpKey", "?")
                             }
+                        }
+                    }
+                }
+            }
+
+            // Arama motorları
+            Page {
+                title: win.tr("page.engines")
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: 900
+                    spacing: Kirigami.Units.largeSpacing
+
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: win.tr("engines.note")
+                    }
+
+                    Kirigami.Separator { Layout.fillWidth: true }
+
+                    Repeater {
+                        model: win.cfg.searchEngines
+                        delegate: RowLayout {
+                            id: engineRow
+                            required property var modelData
+                            required property int index
+                            readonly property bool noPlaceholder: !modelData.url.includes("%s")
+                            Layout.fillWidth: true
+                            spacing: Kirigami.Units.largeSpacing
+
+                            Kirigami.Icon {
+                                source: win.engineIcon(engineRow.modelData.url)
+                                fallback: "internet-web-browser"
+                                implicitWidth: Kirigami.Units.iconSizes.smallMedium
+                                implicitHeight: Kirigami.Units.iconSizes.smallMedium
+                            }
+                            QQC2.TextField {
+                                Layout.preferredWidth: 150
+                                text: engineRow.modelData.name
+                                placeholderText: win.tr("engines.name")
+                                onEditingFinished: if (text.trim() && text !== engineRow.modelData.name) win.updateEngine(engineRow.index, { name: text.trim() })
+                            }
+                            QQC2.TextField {
+                                Layout.preferredWidth: 72
+                                horizontalAlignment: Text.AlignHCenter
+                                maximumLength: 8
+                                font.family: "monospace"
+                                text: engineRow.modelData.key
+                                validator: RegularExpressionValidator { regularExpression: /\S{1,8}/ }
+                                onEditingFinished: if (acceptableInput && text !== engineRow.modelData.key) win.updateEngine(engineRow.index, { key: text })
+                                QQC2.ToolTip.text: win.tr("engines.key")
+                                QQC2.ToolTip.visible: hovered
+                                QQC2.ToolTip.delay: 500
+                            }
+                            QQC2.TextField {
+                                Layout.fillWidth: true
+                                font.family: "monospace"
+                                text: engineRow.modelData.url
+                                placeholderText: "https://example.com/search?q=%s"
+                                validator: RegularExpressionValidator { regularExpression: /https?:\/\/\S+/ }
+                                onEditingFinished: if (acceptableInput && text !== engineRow.modelData.url) win.updateEngine(engineRow.index, { url: text })
+                                QQC2.ToolTip.text: win.tr("engines.url")
+                                QQC2.ToolTip.visible: hovered
+                                QQC2.ToolTip.delay: 500
+                            }
+                            Kirigami.Icon {
+                                source: "dialog-warning"
+                                visible: win.engineConflict(engineRow.index) || engineRow.noPlaceholder
+                                implicitWidth: Kirigami.Units.iconSizes.small
+                                implicitHeight: Kirigami.Units.iconSizes.small
+                                HoverHandler { id: engineWarnHover }
+                                QQC2.ToolTip.text: win.engineConflict(engineRow.index) ? win.tr("prefixes.duplicate") : win.tr("engines.noPlaceholder")
+                                QQC2.ToolTip.visible: engineWarnHover.hovered
+                            }
+                            QQC2.Switch {
+                                checked: engineRow.modelData.enabled
+                                onToggled: win.updateEngine(engineRow.index, { enabled: checked })
+                                QQC2.ToolTip.text: win.tr("prefixes.enabled")
+                                QQC2.ToolTip.visible: hovered
+                                QQC2.ToolTip.delay: 500
+                            }
+                            QQC2.ToolButton {
+                                icon.name: "edit-delete"
+                                onClicked: win.setv("searchEngines", win.cfg.searchEngines.filter((_, j) => j !== engineRow.index))
+                                QQC2.ToolTip.text: win.tr("prefixes.remove")
+                                QQC2.ToolTip.visible: hovered
+                            }
+                        }
+                    }
+
+                    Kirigami.Separator { Layout.fillWidth: true }
+
+                    RowLayout {
+                        spacing: Kirigami.Units.largeSpacing
+                        QQC2.Button {
+                            text: win.tr("engines.add")
+                            icon.name: "list-add"
+                            onClicked: {
+                                const used = win.cfg.searchEngines.map(e => e.key).concat(win.cfg.modes.map(m => m.key))
+                                let n = 1
+                                while (used.includes("e" + n)) n++
+                                win.setv("searchEngines", win.cfg.searchEngines.concat([{ id: "engine-" + Date.now(), key: "e" + n,
+                                                                                          name: win.tr("engines.newName"),
+                                                                                          url: "https://", enabled: true }]))
+                            }
+                        }
+                        QQC2.Button {
+                            text: win.tr("prefixes.reset")
+                            icon.name: "edit-reset"
+                            onClicked: win.setv("searchEngines", win.controller.defaultSearchEngines())
                         }
                     }
                 }

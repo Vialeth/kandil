@@ -34,6 +34,12 @@ The code was written by Claude Opus 5.5.
 - A preview panel for the selected result; for files it shows image thumbnails,
   the first lines of text files, folder contents, size and modification date.
 - Prefixes that limit the search to one source, for example `f` for files.
+- Web search with the `s` prefix: results from Brave Search are listed in the
+  panel and the selected one opens in the default browser. A typed address such
+  as `kde.org` opens directly without a prefix.
+- Search engine keywords such as `gg ubuntu` (Google) or `yt lofi` (YouTube)
+  that open the search in the browser. Engines can be added and edited in the
+  settings.
 - Clipboard history search through Klipper.
 - Running a shell command and showing its output in the panel.
 - A settings window and a JSON configuration file.
@@ -92,8 +98,8 @@ settings.
 ## Usage
 
 Press Alt+Space, type a query and press Enter. Typing `?` in the empty search
-field shows the list of prefixes and keyboard shortcuts. The last entry of that
-list opens the settings.
+field shows the list of prefixes and keyboard shortcuts. The entry between the
+two opens the settings.
 
 <img src="docs/screenshots/help.png" alt="Help list" width="720">
 
@@ -107,15 +113,44 @@ shown as a label in the search field and can be removed with Backspace.
 | `f` | Files and folders | `f invoice` |
 | `w` | Open windows | `w firefox` |
 | `a` | Applications | `a calc` |
-| `s` | System Settings | `s bluetooth` |
+| `s` | Web search (Brave Search) | `s kde plasma` |
+| `ss` | System Settings | `ss bluetooth` |
 | `=` | Calculator | `= sqrt(2)` |
 | `c` | Clipboard history | `c address` |
 | `>` | Shell command | `> uptime` |
 
 Unit conversions (`10 km > mi`, `100 usd`) work in the normal search without a
-prefix. Prefixes do not depend on the interface language. They can be changed
+prefix. Addresses such as `github.com` or `https://kde.org` also work without a
+prefix: the first result opens the page in the default browser.
+
+In web search mode the query is sent to Brave Search after a short pause in
+typing. The last row opens the full results page in the browser, so pressing
+Enter before the results arrive still searches. Installations that used `s` for
+System Settings are moved to `ss` automatically. Prefixes do not depend on the interface language. They can be changed
 or disabled in the settings, and additional prefixes can be added for any
 installed KRunner plugin.
+
+### Search engines
+
+A search engine keyword followed by a space opens the search on that site in the
+default browser. With an empty query, Enter opens the site's home page.
+
+| Keyword | Site |
+|---|---|
+| `gg` | Google |
+| `yt` | YouTube |
+| `wiki` | Wikipedia |
+| `maps` | Google Maps |
+| `ama` | Amazon |
+| `eb` | eBay |
+| `gh` | GitHub |
+| `ddg` | DuckDuckGo |
+
+Search engines are managed on the "Web search" page of the settings: each one
+has a name, a keyword and a search address in which `%s` is replaced with the
+search terms, for example `https://www.reddit.com/search/?q=%s`. Site icons are
+downloaded once and stored in `~/.cache/kandil/favicons`. If a keyword is also
+used as a prefix, the prefix takes precedence.
 
 ### Keyboard shortcuts
 
@@ -153,6 +188,7 @@ The settings window has the following pages:
 - Behavior: closing on focus loss, selection on mouse hover, keeping the last
   query, history size, result limit
 - Prefixes: prefix keys, enabling and disabling modes, custom prefixes
+- Web search: search engines with their keywords and search addresses
 - Commands: timeout, shell, terminal command
 - Data: clearing the history, resetting the settings
 

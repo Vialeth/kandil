@@ -57,19 +57,42 @@ Window {
     // Önek modu: "f rapor" yazılınca etiket "Dosyalar" olur ve arama yalnızca o kaynakta yapılır.
     // mode, modun kimliğini (files, clipboard, help, özel…) tutar.
     property string mode: ""
-    readonly property var modeInfo: mode !== "" ? (modes.find(m => m.id === mode) ?? null) : null
+    readonly property var modeInfo: mode === "" ? null
+                                  : mode.startsWith("engine:") ? engineMode(engines.find(e => "engine:" + e.id === mode))
+                                  : (modes.find(m => m.id === mode) ?? null)
     readonly property string modeRunner: modeInfo ? modeInfo.runner : ""
 
     function modeLabel(m) {
         return m.custom ? (m.label || m.runner) : tr("mode." + m.id)
     }
 
+    // Arama motorları ("gg ubuntu"): anahtar kelimesi yazılınca mod gibi etiket olur
+    readonly property var engines: (config.searchEngines ?? []).filter(e => e.enabled && e.key)
+    property int faviconTick: 0                // site simgesi indirildikçe artar, simgeler yeniden sorulur
+
+    function engineIcon(e) {
+        faviconTick
+        return controller.favicon(e.url) || "internet-web-browser"
+    }
+
+    function engineMode(e) {
+        return e ? { id: "engine:" + e.id, key: e.key, runner: ":engine", icon: engineIcon(e), label: e.name,
+                     custom: true, enabled: true, engine: e } : null
+    }
+
+    function siteOf(url) {
+        const m = /^https?:\/\/[^\/?#]+/.exec(url)
+        return m ? m[0] : url
+    }
+
     // Boş sorguda son/sık kullanılanlar gösterilir
     readonly property bool historyMode: field.text.length === 0 && mode === ""
-    // Listenin o an neyi gösterdiği: history | clip | command | results
+    // Listenin o an neyi gösterdiği: history | clip | web | command | results
     readonly property string listKind: historyMode ? "history"
                                      : modeRunner === ":help" ? "help"
                                      : modeRunner === ":clipboard" ? "clip"
+                                     : modeRunner === ":web" ? "web"
+                                     : modeRunner === ":engine" ? "engine"
                                      : modeRunner === ":command" ? "command" : "results"
 
     // Komut modu durumu
@@ -99,6 +122,13 @@ Window {
                 return true
             }
         }
+        for (const e of engines) {
+            if (t.startsWith(e.key + " ")) {
+                mode = "engine:" + e.id
+                field.text = t.slice(e.key.length + 1)
+                return true
+            }
+        }
         return false
     }
 
@@ -107,6 +137,27 @@ Window {
         activeAction = -1
         if (listKind === "clip") loadClipboard()
         if (listKind === "help") loadHelp()
+        if (listKind === "web") queueWebSearch()
+        else if (webState !== "idle") resetWeb()
+        loadEngine()
+    }
+
+    // ── Arama motorları ──────────────────────────────────────────────
+    ListModel { id: engineModel }
+
+    function loadEngine() {
+        engineModel.clear()
+        const e = listKind === "engine" ? modeInfo.engine : null
+        if (!e) return
+        const q = field.text.trim()
+        // Adreste %s yoksa terim sona eklenir; terim yoksa sitenin ana sayfası açılır
+        const url = !q ? siteOf(e.url)
+                  : e.url.includes("%s") ? e.url.split("%s").join(encodeURIComponent(q))
+                  : e.url + encodeURIComponent(q)
+        engineModel.append({ matchId: "engine:" + e.id, url: url, display: e.name,
+                             subtext: q ? tr("engine.searchFor", e.name, q) : tr("engine.openSite", siteOf(e.url)),
+                             decoration: engineIcon(e), category: tr("help.engines"), multiLine: false, keyLabel: "" })
+        list.currentIndex = 0
     }
 
     // ── Yardım ("?") ─────────────────────────────────────────────────
@@ -125,6 +176,12 @@ Window {
             add({ display: modeLabel(m), subtext: m.custom ? tr("help.mode.custom", m.label || m.runner) : tr("help.mode." + m.id),
                   decoration: m.icon, category: prefixes, keyLabel: m.key + " ␣", action: "mode:" + m.id })
         }
+        const engs = tr("help.engines")
+        for (const e of engines)
+            add({ display: e.name, subtext: siteOf(e.url).replace(/^https?:\/\/(www\.)?/, ""), decoration: engineIcon(e),
+                  category: engs, keyLabel: e.key + " ␣", action: "mode:engine:" + e.id })
+        add({ display: tr("help.settings"), subtext: tr("help.settingsDesc"), decoration: "configure",
+              category: tr("app.name"), keyLabel: "", action: "settings" })
         const keys = tr("help.keys")
         const shortcuts = [
             ["↑ ↓", "help.key.navigate"], ["Ctrl ↑ ↓", "help.key.category"], ["↵", "help.key.open"],
@@ -133,8 +190,6 @@ Window {
         ]
         for (const [k, key] of shortcuts)
             add({ display: tr(key), subtext: "", decoration: "input-keyboard", category: keys, keyLabel: k, action: "" })
-        add({ display: tr("help.settings"), subtext: tr("help.settingsDesc"), decoration: "configure",
-              category: tr("app.name"), keyLabel: "", action: "settings" })
         list.currentIndex = 0
     }
 
@@ -153,7 +208,7 @@ Window {
     // Sonuç varsa kart sağa doğru genişler ve seçili sonucun önizleme paneli açılır
     property bool hasResults: false
     readonly property bool previewMode: previewWidth > 0
-        && ((listKind === "results" && hasResults) || (listKind === "clip" && list.count > 0))
+        && ((listKind === "results" && hasResults) || ((listKind === "clip" || listKind === "web") && list.count > 0))
     property var previewInfo: ({})
     onPreviewModeChanged: refreshPreview()
 
@@ -205,6 +260,7 @@ Window {
     LayerShell.Window.exclusionZone: -1
 
     function open() {
+        if (leaving) finishLeaving()
         const scr = root.screen ?? Qt.application.screens[0]
         controller.setTopMargin(root.LayerShell.Window, Math.round(scr.height * topRatio) - shadowMargin)
         loadHistory()
@@ -222,6 +278,7 @@ Window {
 
     function close() {
         root.visible = false
+        if (leaving) finishLeaving()
         runWhenReady = false
         activeAction = -1
         ctrlHeld = false
@@ -235,6 +292,8 @@ Window {
         controller.cancelCommand()
         cmdState = "idle"
         cmdOutput = ""
+        if (listKind !== "web") resetWeb()
+        else controller.cancelWebSearch()
     }
 
     NumberAnimation {
@@ -247,9 +306,36 @@ Window {
         easing.type: Easing.OutCubic
     }
 
+    // Wayland'de Qt, xdg-open'ı pencere için istediği etkinleştirme jetonu gelince çalıştırır.
+    // Layer-shell penceresi aynı anda gizlenirse istek yanıtsız kalır ve adres hiç açılmaz.
+    // Bu yüzden kart hemen görünmez olur, tıklamalar alttaki pencereye geçer; pencere kısa
+    // bir süre sonra kapanır.
+    property bool leaving: false
+
+    function openExternal(url) {
+        controller.openUrl(url)
+        leaving = true
+        root.contentItem.opacity = 0
+        // Boş maske Qt'de "maske yok" demektir; bu yüzden 1×1'lik bir alan bırakılır
+        controller.updateCardRegion(root, 0, 0, 1, 1, 0)
+        leaveTimer.start()
+    }
+
+    function finishLeaving() {
+        leaveTimer.stop()
+        leaving = false
+        root.contentItem.opacity = 1
+    }
+
+    Timer {
+        id: leaveTimer
+        interval: 250
+        onTriggered: root.close()
+    }
+
     // Bulanıklık ve tıklama alanı kartın o anki şekliyle sınırlı tutulur.
     function updateCardRegion() {
-        if (!visible) return
+        if (!visible || leaving) return
         const w = card.width * openScale
         const h = card.height * openScale
         controller.updateCardRegion(root, card.x + (card.width - w) / 2, card.y, w, h, cardRadius * openScale)
@@ -284,6 +370,76 @@ Window {
             root.cmdElapsed = elapsed
             root.cmdState = "done"
         }
+        function onFaviconReady(host) {
+            root.faviconTick++
+            if (root.listKind === "engine") root.loadEngine()
+            if (root.listKind === "help") root.loadHelp()
+        }
+        function onWebResults(query, items, error) {
+            if (root.listKind !== "web" || query !== field.text.trim()) return
+            root.webError = error
+            root.webState = error ? "error" : "done"
+            root.fillWeb(query, items)
+        }
+    }
+
+    // ── Web araması ──────────────────────────────────────────────────
+    // Sonuçlar Brave Search'ten gelir; listenin sonunda sorguyu tarayıcıda açan bir satır
+    // her zaman bulunur, böylece sonuçlar gelmeden Enter'a basılırsa arama tarayıcıda açılır.
+    ListModel { id: webModel }
+    property string webState: "idle"           // idle | searching | done | error
+    property string webError: ""
+    property int webCount: 0
+
+    Timer {
+        id: webDelay
+        interval: 450
+        onTriggered: controller.webSearch(field.text.trim())
+    }
+
+    function queueWebSearch() {
+        const q = field.text.trim()
+        webDelay.stop()
+        controller.cancelWebSearch()
+        if (!q) {
+            resetWeb()
+            return
+        }
+        webState = "searching"
+        webError = ""
+        // Yeni sonuçlar gelene kadar eskiler kalır; yalnızca tarayıcı satırı güncellenir
+        if (webModel.count > 0) {
+            webModel.set(webModel.count - 1, { url: controller.webSearchPage(q), display: tr("web.inBrowser", q) })
+            if (webModel.count === 1) Qt.callLater(refreshPreview)
+        } else {
+            fillWeb(q, [])
+        }
+        webDelay.start()
+    }
+
+    function fillWeb(query, items) {
+        webModel.clear()
+        for (const r of items)
+            webModel.append({ matchId: "web:" + r.url, url: r.url, display: r.title,
+                              subtext: r.url.replace(/^https?:\/\/(www\.)?/, ""), description: r.description,
+                              decoration: r.favicon || "internet-web-browser",
+                              category: tr("web.section"), multiLine: false, keyLabel: "" })
+        webCount = items.length
+        webModel.append({ matchId: "web:search", url: controller.webSearchPage(query),
+                          display: tr("web.inBrowser", query), subtext: tr("web.inBrowserSub"), description: "",
+                          decoration: "internet-web-browser", category: tr("web.section"),
+                          multiLine: false, keyLabel: "" })
+        list.currentIndex = 0
+        Qt.callLater(refreshPreview)
+    }
+
+    function resetWeb() {
+        webDelay.stop()
+        controller.cancelWebSearch()
+        webModel.clear()
+        webState = "idle"
+        webError = ""
+        webCount = 0
     }
 
     // ── Pano ─────────────────────────────────────────────────────────
@@ -387,7 +543,8 @@ Window {
     // ── Sonuçlar ─────────────────────────────────────────────────────
     function localModel() {
         return listKind === "history" ? historyModel : listKind === "clip" ? clipModel
-             : listKind === "help" ? helpModel : null
+             : listKind === "help" ? helpModel : listKind === "web" ? webModel
+             : listKind === "engine" ? engineModel : null
     }
 
     function idAt(i) {
@@ -421,6 +578,11 @@ Window {
                 controller.restoreClipboard(clipModel.get(i).clipIndex)
                 close()
             }
+            return
+        }
+        if (listKind === "web" || listKind === "engine") {
+            const m = localModel()
+            if (i >= 0 && i < m.count) openExternal(m.get(i).url)
             return
         }
         if (listKind === "command") return
@@ -489,6 +651,11 @@ Window {
             if (!e) return
             previewInfo = { exists: true, kind: "text", noMeta: true, name: root.tr("clip.item"),
                             location: e.subtext, icon: "edit-paste", text: e.fullText }
+        } else if (listKind === "web") {
+            const w = webModel.get(list.currentIndex)
+            if (!w) return
+            previewInfo = { exists: true, kind: "text", noMeta: true, name: w.display,
+                            location: w.url, icon: w.decoration, text: w.description }
         } else if (item.matchId.startsWith("file://")) {
             previewInfo = controller.fileInfo(item.matchId)
         } else {
@@ -635,6 +802,8 @@ Window {
                         list.currentIndex = 0
                         if (root.listKind === "clip") root.loadClipboard()
                         if (root.listKind === "help") root.loadHelp()
+                        if (root.listKind === "web") root.queueWebSearch()
+                        if (root.listKind === "engine") root.loadEngine()
                     }
 
                     Keys.onReleased: event => {
@@ -778,6 +947,8 @@ Window {
                     model: root.listKind === "history" ? historyModel
                          : root.listKind === "clip" ? clipModel
                          : root.listKind === "help" ? helpModel
+                         : root.listKind === "web" ? webModel
+                         : root.listKind === "engine" ? engineModel
                          : root.listKind === "command" ? null : results
                     keyNavigationWraps: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -789,7 +960,8 @@ Window {
                     }
 
                     // Kaydırma çubuğu gerektiğinde satırlar daralır; çubuk kendi şeridinde durur
-                    readonly property bool scrollNeeded: contentHeight > height + 1
+                    // Liste yüksekliği içerikten türediği için üst sınırla karşılaştırılır (bağlama döngüsü olmasın)
+                    readonly property bool scrollNeeded: contentHeight > root.rowHeight * root.maxVisibleRows + 60 + 1
                     readonly property real rowWidth: width - (scrollNeeded ? 14 : 0)
 
                     QQC2.ScrollBar.vertical: QQC2.ScrollBar {
@@ -859,6 +1031,8 @@ Window {
 
                             Kirigami.Icon {
                                 source: row.model.decoration
+                                // Web sonuçlarında site simgesi yüklenemezse
+                                fallback: ["web", "engine", "help"].includes(root.listKind) ? "internet-web-browser" : "unknown"
                                 implicitWidth: root.iconSize
                                 implicitHeight: root.iconSize
                                 Layout.alignment: Qt.AlignVCenter
@@ -1080,6 +1254,7 @@ Window {
                                     implicitWidth: 64
                                     implicitHeight: 64
                                     source: preview.info.icon ?? ""
+                                    fallback: ["web", "engine", "help"].includes(root.listKind) ? "internet-web-browser" : "unknown"
                                 }
                             }
 
@@ -1299,11 +1474,13 @@ Window {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 56
                 visible: list.count === 0 && ((root.listKind === "results" && !results.querying)
-                                              || root.listKind === "clip" || root.listKind === "help")
+                                              || root.listKind === "clip" || root.listKind === "help"
+                                              || root.listKind === "web")
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 text: root.listKind === "clip" ? (field.text ? root.tr("clip.noMatch") : root.tr("clip.empty"))
-                                               : root.tr("results.none")
+                    : root.listKind === "web" ? root.tr("web.empty")
+                    : root.tr("results.none")
                 color: root.dimColor
                 font.pixelSize: 13
             }
@@ -1340,7 +1517,13 @@ Window {
                         if (root.listKind === "command") return root.tr("cmd.shell", root.config.commandShell ?? "/bin/bash")
                         if (root.listKind === "history") return root.tr("history.title")
                         if (root.listKind === "help") return root.tr("mode.help")
+                        if (root.listKind === "engine") return root.modeLabel(root.modeInfo)
                         if (root.listKind === "clip") return root.tr("clip.count", list.count)
+                        if (root.listKind === "web") {
+                            if (root.webState === "searching") return root.tr("web.searching")
+                            if (root.webState === "error") return root.tr("web.failed", root.webError)
+                            return root.webCount > 0 ? root.tr("web.count", root.webCount) : root.tr("results.none")
+                        }
                         return root.tr("results.count", list.count)
                     }
                     color: root.dimColor
