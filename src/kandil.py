@@ -50,6 +50,7 @@ HISTORY_LIMIT = 200
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "kandil")
 CONFIG_FILE = os.path.join(CONFIG_DIR, "config.json")
+SECRETS_FILE = os.path.join(CONFIG_DIR, "secrets.json")      # API anahtarları; yalnızca kullanıcı okuyabilir
 CACHE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "kandil")
 FAVICON_DIR = os.path.join(CACHE_DIR, "favicons")
 SHORTCUTS_FILE = "kglobalshortcutsrc"
@@ -112,6 +113,28 @@ EMOJI_TONE_RE = re.compile("[" + EMOJI_TONES + "]")
 EMOJI_LIMIT = 80
 EMOJI_RECENT_LIMIT = 24
 
+# Yapay zekâ sohbeti. "openai" türü OpenAI uyumlu /chat/completions uç noktasını konuşan her sunucuyu
+# (Ollama, LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter, Groq…) kapsar; "anthropic" Claude'un
+# Messages API'sidir. İkisi de Qt ağ katmanıyla doğrudan, akış (SSE) olarak çağrılır.
+AI_PRESETS = {
+    "ollama": {"name": "Ollama", "type": "openai", "url": "http://localhost:11434/v1", "model": ""},
+    "lmstudio": {"name": "LM Studio", "type": "openai", "url": "http://localhost:1234/v1", "model": ""},
+    "llamacpp": {"name": "llama.cpp", "type": "openai", "url": "http://localhost:8080/v1", "model": ""},
+    "openai": {"name": "OpenAI", "type": "openai", "url": "https://api.openai.com/v1", "model": ""},
+    "openrouter": {"name": "OpenRouter", "type": "openai", "url": "https://openrouter.ai/api/v1", "model": ""},
+    "anthropic": {"name": "Claude", "type": "anthropic", "url": "https://api.anthropic.com/v1",
+                  "model": "claude-opus-5-5", "effort": "low"},
+}
+AI_DEFAULT_SYSTEM_PROMPT = ("You are a helpful assistant inside a desktop application launcher. Answer concisely "
+                            "and use Markdown when it helps. Reply in the language of the user's message.")
+ANTHROPIC_VERSION = "2023-06-01"
+# Reddedilen isteklerin sunucu tarafında başka bir modelle sürdürülmesi (refusal fallback)
+ANTHROPIC_FALLBACK_BETA = "server-side-fallback-2026-07-01"
+ANTHROPIC_FALLBACK_MODELS = ("claude-fable-5-1", "claude-opus-5-5", "claude-opus-5", "claude-sonnet-5-5")
+AI_MAX_TOKENS = 64000
+AI_IDLE_TIMEOUT = 180000        # ms; yerel modelin belleğe yüklenmesi uzun sürebilir
+THINK_RE = re.compile(r"<think>.*?(?:</think>|$)", re.S)
+
 # Ayar dosyasında olmayan anahtarlar bu değerlerle tamamlanır.
 DEFAULT_CONFIG = {
     "language": "system",
@@ -150,6 +173,9 @@ DEFAULT_CONFIG = {
     # Önekler
     "helpKey": "?",
     "modes": [dict(m, enabled=True) for m in BUILTIN_MODES],
+    # Yapay zekâ
+    "aiProviders": [dict(AI_PRESETS["ollama"], id="ollama", key="ai", effort="", enabled=True)],
+    "aiSystemPrompt": "",
     # Arama motorları
     "searchEngines": [dict(e, enabled=True) for e in DEFAULT_SEARCH_ENGINES],
 }
@@ -189,6 +215,21 @@ def clean_engines(engines):
             continue
         out.append({"id": str(e.get("id") or f"engine-{i}"), "key": key, "name": str(e.get("name") or key),
                     "url": url, "enabled": bool(e.get("enabled", True))})
+    return out
+
+
+def clean_providers(providers):
+    out = []
+    for i, p in enumerate(providers):
+        if not isinstance(p, dict):
+            continue
+        url = str(p.get("url", "")).strip().rstrip("/")
+        if not url.startswith(("http://", "https://")):
+            continue
+        out.append({"id": str(p.get("id") or f"ai-{i}"), "key": str(p.get("key", "")).strip(),
+                    "name": str(p.get("name") or url), "type": "anthropic" if p.get("type") == "anthropic" else "openai",
+                    "url": url, "model": str(p.get("model", "")).strip(), "effort": str(p.get("effort", "")),
+                    "enabled": bool(p.get("enabled", True))})
     return out
 
 
@@ -234,7 +275,26 @@ def load_config():
         config[key] = value
     config["modes"] = merge_modes(config["modes"])
     config["searchEngines"] = clean_engines(config["searchEngines"])
+    config["aiProviders"] = clean_providers(config["aiProviders"])
     return config
+
+
+def load_secrets():
+    try:
+        with open(SECRETS_FILE, encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_secrets(secrets):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    tmp = SECRETS_FILE + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(secrets, f, indent=2)
+    os.replace(tmp, SECRETS_FILE)
 
 
 # ── Web araması ──────────────────────────────────────────────────────
@@ -727,6 +787,9 @@ class Controller(QObject):
     webResults = Signal(str, "QVariantList", str)        # sorgu, sonuçlar, hata
     faviconReady = Signal(str)                          # site adı (host)
     browseIndexReady = Signal()
+    aiUpdate = Signal(str, bool)                        # yanıtın görünen metni, model düşünüyor mu
+    aiFinished = Signal(str, str)                       # hata ("" başarı), bitiş nedeni
+    aiModelsReady = Signal(str, "QVariantList", str)    # sağlayıcı, model listesi, hata
 
     def __init__(self):
         super().__init__()
@@ -757,6 +820,9 @@ class Controller(QObject):
         self.favicon_pending = set()
         self.folder_index = None
         self.emoji = None
+        self.ai_chat = {"provider": "", "messages": []}
+        self.ai_reply = None
+        self.ai_state = None
         self.emoji_lang = ""
         self.emoji_catalog = None
         self.folder_index_time = 0
@@ -1167,6 +1233,230 @@ class Controller(QObject):
         folder = os.path.dirname(os.path.expanduser(text)) if text.startswith(("/", "~")) else HOME
         parent = os.path.dirname(folder.rstrip("/")) or "/"
         return "/" if parent == "/" else tilde(parent) + "/"
+
+    # ── Yapay zekâ ───────────────────────────────────────────────────
+    def ai_provider(self, pid):
+        return next((p for p in self.config["aiProviders"] if p["id"] == pid), None)
+
+    def ai_key(self, provider):
+        key = load_secrets().get(provider["id"], "")
+        if not key and provider["type"] == "anthropic":
+            key = os.environ.get("ANTHROPIC_API_KEY", "")
+        return key
+
+    def ai_request(self, provider, path):
+        request = QNetworkRequest(QUrl(provider["url"] + path))
+        request.setHeader(QNetworkRequest.ContentTypeHeader, "application/json")
+        request.setTransferTimeout(AI_IDLE_TIMEOUT)
+        key = self.ai_key(provider)
+        if provider["type"] == "anthropic":
+            request.setRawHeader(b"x-api-key", key.encode())
+            request.setRawHeader(b"anthropic-version", ANTHROPIC_VERSION.encode())
+        elif key:
+            request.setRawHeader(b"Authorization", f"Bearer {key}".encode())
+        return request
+
+    @staticmethod
+    def ai_error_text(reply, body):
+        try:
+            err = json.loads(body).get("error")
+            if isinstance(err, dict) and err.get("message"):
+                return err["message"]
+            if isinstance(err, str):
+                return err
+        except (ValueError, AttributeError):
+            pass
+        return reply.errorString()
+
+    @Slot(str, result=bool)
+    def aiHasKey(self, pid):
+        provider = self.ai_provider(pid)
+        return bool(provider and self.ai_key(provider))
+
+    @Slot(str, str)
+    def setAiKey(self, pid, key):
+        secrets = load_secrets()
+        if key:
+            secrets[pid] = key
+        else:
+            secrets.pop(pid, None)
+        save_secrets(secrets)
+
+    @Slot(result="QVariantMap")
+    def aiPresets(self):
+        return copy.deepcopy(AI_PRESETS)
+
+    @Slot(str)
+    def aiModels(self, pid):
+        """Sağlayıcının model listesi (OpenAI uyumlu ve Anthropic: GET /models → data[].id)."""
+        provider = self.ai_provider(pid)
+        if not provider:
+            return
+        reply = self.network.get(self.ai_request(provider, "/models"))
+
+        def on_finished():
+            reply.deleteLater()
+            body = bytes(reply.readAll().data()).decode("utf-8", errors="replace")
+            if reply.error() != QNetworkReply.NoError:
+                self.aiModelsReady.emit(pid, [], self.ai_error_text(reply, body))
+                return
+            try:
+                models = sorted(m["id"] for m in json.loads(body).get("data", []) if m.get("id"))
+            except (ValueError, TypeError, AttributeError):
+                models = []
+            self.aiModelsReady.emit(pid, models, "")
+
+        reply.finished.connect(on_finished)
+
+    @Slot(result="QVariantList")
+    def aiHistory(self):
+        return [{"role": m["role"], "text": THINK_RE.sub("", m["content"]).strip()} for m in self.ai_chat["messages"]]
+
+    @Slot(result=str)
+    def aiChatProvider(self):
+        return self.ai_chat["provider"]
+
+    @Slot()
+    def aiReset(self):
+        self.aiCancel()
+        self.ai_chat = {"provider": "", "messages": []}
+
+    @Slot()
+    def aiCancel(self):
+        """Yanıtı durdurur; gelen kısım geçmişe eklenir, hiç gelmediyse soru geçmişten çıkarılır."""
+        if self.ai_reply is not None:
+            reply, self.ai_reply = self.ai_reply, None
+            reply.abort()
+            if self.ai_state and self.ai_state["text"].strip():
+                self.ai_chat["messages"].append({"role": "assistant", "content": self.ai_state["text"]})
+            elif self.ai_chat["messages"] and self.ai_chat["messages"][-1]["role"] == "user":
+                self.ai_chat["messages"].pop()
+
+    @Slot(result=bool)
+    def aiBusy(self):
+        return self.ai_reply is not None
+
+    @Slot(str, str)
+    def aiAsk(self, pid, text):
+        provider = self.ai_provider(pid)
+        if not provider or not text.strip():
+            return
+        self.aiCancel()
+        if self.ai_chat["provider"] != pid:
+            self.ai_chat = {"provider": pid, "messages": []}
+        self.ai_chat["messages"].append({"role": "user", "content": text.strip()})
+        if provider["model"]:
+            self.ai_send(provider, provider["model"])
+            return
+        # Model seçilmemişse sunucunun ilk modeli kullanılır (ör. Ollama'da kurulu ilk model)
+        def first_model(p, models, error):
+            if p != pid:
+                return
+            self.aiModelsReady.disconnect(first_model)
+            if models:
+                self.ai_send(provider, models[0])
+            else:
+                self.ai_fail(error or self.t("ai.noModel"))
+        self.aiModelsReady.connect(first_model)
+        self.aiModels(pid)
+
+    def ai_fail(self, error):
+        # Yanıtsız kalan soru geçmişten çıkarılır; aksi hâlde art arda iki kullanıcı mesajı oluşur
+        if self.ai_chat["messages"] and self.ai_chat["messages"][-1]["role"] == "user":
+            self.ai_chat["messages"].pop()
+        self.aiFinished.emit(error, "")
+
+    def ai_send(self, provider, model):
+        system = self.config["aiSystemPrompt"].strip() or AI_DEFAULT_SYSTEM_PROMPT
+        messages = [{"role": m["role"], "content": THINK_RE.sub("", m["content"]).strip()}
+                    for m in self.ai_chat["messages"]]
+        anthropic = provider["type"] == "anthropic"
+        if anthropic:
+            body = {"model": model, "max_tokens": AI_MAX_TOKENS, "stream": True, "system": system,
+                    "messages": messages}
+            if provider.get("effort"):
+                body["output_config"] = {"effort": provider["effort"]}
+            request = self.ai_request(provider, "/messages")
+            if model in ANTHROPIC_FALLBACK_MODELS:
+                body["fallbacks"] = "default"
+                request.setRawHeader(b"anthropic-beta", ANTHROPIC_FALLBACK_BETA.encode())
+        else:
+            body = {"model": model, "stream": True, "messages": [{"role": "system", "content": system}] + messages}
+            request = self.ai_request(provider, "/chat/completions")
+        reply = self.network.post(request, json.dumps(body).encode())
+        self.ai_reply = reply
+        state = {"buffer": b"", "text": "", "thinking": False, "stop": "", "error": "", "raw": b""}
+        self.ai_state = state
+
+        def handle(data):
+            if anthropic:
+                kind = data.get("type")
+                if kind == "content_block_delta":
+                    delta = data.get("delta", {})
+                    if delta.get("type") == "text_delta":
+                        state["text"] += delta.get("text", "")
+                        state["thinking"] = False
+                    elif delta.get("type") == "thinking_delta":
+                        state["thinking"] = True
+                elif kind == "content_block_start" and data.get("content_block", {}).get("type") == "thinking":
+                    state["thinking"] = True
+                elif kind == "message_delta":
+                    state["stop"] = data.get("delta", {}).get("stop_reason") or state["stop"]
+                elif kind == "error":
+                    state["error"] = data.get("error", {}).get("message", "error")
+            else:
+                if data.get("error"):
+                    err = data["error"]
+                    state["error"] = err.get("message", str(err)) if isinstance(err, dict) else str(err)
+                    return
+                for choice in data.get("choices", [])[:1]:
+                    delta = choice.get("delta", {})
+                    if delta.get("content"):
+                        state["text"] += delta["content"]
+                    # Düşünen modeller (DeepSeek, Qwen…) akıl yürütmeyi ayrı alanda gönderir
+                    state["thinking"] = bool(delta.get("reasoning_content") or delta.get("reasoning")) \
+                        and not delta.get("content")
+                    state["stop"] = choice.get("finish_reason") or state["stop"]
+
+        def on_ready():
+            if self.ai_reply is not reply:
+                return
+            chunk = bytes(reply.readAll().data())
+            status = reply.attribute(QNetworkRequest.HttpStatusCodeAttribute) or 200
+            if status >= 400:
+                state["raw"] += chunk
+                return
+            state["buffer"] += chunk
+            *lines, state["buffer"] = state["buffer"].split(b"\n")
+            for line in lines:
+                line = line.strip()
+                if not line.startswith(b"data:"):
+                    continue
+                payload = line[5:].strip()
+                if payload == b"[DONE]":
+                    continue
+                try:
+                    handle(json.loads(payload))
+                except ValueError:
+                    continue
+            shown = THINK_RE.sub("", state["text"]).lstrip()
+            thinking = state["thinking"] or (bool(state["text"]) and not shown and "<think>" in state["text"])
+            self.aiUpdate.emit(shown, thinking)
+
+        def on_finished():
+            reply.deleteLater()
+            if self.ai_reply is not reply:
+                return
+            self.ai_reply = None
+            if reply.error() != QNetworkReply.NoError or state["error"]:
+                body = (state["raw"] + bytes(reply.readAll().data())).decode("utf-8", errors="replace")
+                self.ai_fail(state["error"] or self.ai_error_text(reply, body))
+                return
+            self.ai_chat["messages"].append({"role": "assistant", "content": state["text"]})
+            self.aiFinished.emit("", state["stop"])
+
+        reply.readyRead.connect(on_ready)
+        reply.finished.connect(on_finished)
 
     # ── Emoji ────────────────────────────────────────────────────────
     def emoji_data(self):

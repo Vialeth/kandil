@@ -46,6 +46,9 @@ The code was written by Claude Opus 5.5.
 - An emoji picker (`e`) with names and keywords in the interface language,
   recently used emoji and a skin tone setting.
 - Running a shell command and showing its output in the panel.
+- Chat with a local model (Ollama, LM Studio, llama.cpp) or an online service
+  (Claude, OpenAI, OpenRouter, …) with the `ai` keyword; answers stream into
+  the panel.
 - A settings window and a JSON configuration file.
 - Interface translations for 31 languages.
 
@@ -171,6 +174,36 @@ is set on the Behavior page of the settings.
 The emoji data and category names come from Plasma's emoji selector, which is
 installed with Plasma; no additional data is downloaded.
 
+### AI chat
+
+A provider's keyword followed by a space and a question starts a chat, for
+example `ai what is KDE?`. Enter sends the question and the answer streams into
+the panel as formatted text; the next question continues the same conversation.
+
+| Keys | Action |
+|---|---|
+| Enter | Send the question |
+| Esc | Stop the answer |
+| Alt+C | Copy the last answer |
+| Ctrl+N | Start a new chat |
+
+Providers are managed on the "AI" page of the settings. Two kinds are
+supported:
+
+- **OpenAI-compatible:** any server with a `/chat/completions` endpoint, such
+  as Ollama, LM Studio, llama.cpp, vLLM, OpenAI, OpenRouter or Groq. A local
+  Ollama server is configured by default with the keyword `ai`; if no model is
+  set, the first model the server offers is used.
+- **Anthropic (Claude):** the Messages API. For models that support it, a
+  declined request is retried on another model by the API itself
+  (`fallbacks: "default"`), and the effort level can be set per provider.
+
+Each provider has a name, keyword, address, model and API key, and the model
+list can be fetched from the server. API keys are not written to the settings
+file but to `~/.config/kandil/secrets.json`, which only the user can read; for
+Anthropic, `ANTHROPIC_API_KEY` is used when no key is saved. The system prompt
+can be changed on the same page. Conversations are kept in memory only.
+
 ### Search engines
 
 A search engine keyword followed by a space opens the search on that site in the
@@ -230,6 +263,7 @@ The settings window has the following pages:
   query, history size, result limit
 - Prefixes: prefix keys, enabling and disabling modes, custom prefixes
 - Web search: search engines with their keywords and search addresses
+- AI: providers, models, API keys and the system prompt
 - Commands: timeout, shell, terminal command
 - Data: clearing the history, resetting the settings
 
@@ -294,6 +328,7 @@ of the card.
 |---|---|
 | `~/.local/share/kandil/` | Program files |
 | `~/.config/kandil/config.json` | Settings |
+| `~/.config/kandil/secrets.json` | API keys (readable only by the user) |
 | `~/.local/state/kandil/history.json` | History |
 | `~/.config/systemd/user/kandil.service` | User service |
 

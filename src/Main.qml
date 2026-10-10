@@ -59,6 +59,7 @@ Window {
     property string mode: ""
     readonly property var modeInfo: mode === "" ? null
                                   : mode.startsWith("engine:") ? engineMode(engines.find(e => "engine:" + e.id === mode))
+                                  : mode.startsWith("ai:") ? aiMode(aiProviders.find(p => "ai:" + p.id === mode))
                                   : (modes.find(m => m.id === mode) ?? null)
     readonly property string modeRunner: modeInfo ? modeInfo.runner : ""
 
@@ -80,6 +81,14 @@ Window {
                      custom: true, enabled: true, engine: e } : null
     }
 
+    // Yapay zekâ sağlayıcıları ("ai soru"): her sağlayıcının anahtar kelimesi bir mod açar
+    readonly property var aiProviders: (config.aiProviders ?? []).filter(p => p.enabled && p.key)
+
+    function aiMode(p) {
+        return p ? { id: "ai:" + p.id, key: p.key, runner: ":ai", icon: "dialog-messages", label: p.name,
+                     custom: true, enabled: true, provider: p } : null
+    }
+
     function siteOf(url) {
         const m = /^https?:\/\/[^\/?#]+/.exec(url)
         return m ? m[0] : url
@@ -95,6 +104,7 @@ Window {
                                      : modeRunner === ":engine" ? "engine"
                                      : modeRunner === ":browse" ? "browse"
                                      : modeRunner === ":emoji" ? "emoji"
+                                     : modeRunner === ":ai" ? "ai"
                                      : modeRunner === ":command" ? "command" : "results"
 
     // Komut modu durumu
@@ -131,6 +141,13 @@ Window {
                 return true
             }
         }
+        for (const p of aiProviders) {
+            if (t.startsWith(p.key + " ")) {
+                mode = "ai:" + p.id
+                field.text = t.slice(p.key.length + 1)
+                return true
+            }
+        }
         return false
     }
 
@@ -148,6 +165,63 @@ Window {
         }
         if (listKind === "emoji") loadEmoji()
         else if (emojiModel.count > 0) emojiModel.clear()
+        if (listKind === "ai") loadAiChat()
+    }
+
+    // ── Yapay zekâ sohbeti ───────────────────────────────────────────
+    // Enter soruyu gönderir; yanıt akış hâlinde gelir. Sohbet aynı sağlayıcıyla sürer,
+    // Ctrl+N yeni sohbet başlatır, Esc yanıtı durdurur, Alt+C son yanıtı kopyalar.
+    ListModel { id: aiModel }
+    property string aiState: "idle"            // idle | waiting | streaming | done | error
+    property string aiError: ""
+    property string aiNote: ""
+    property bool aiThinking: false
+    property real aiStarted: 0
+
+    function loadAiChat() {
+        aiModel.clear()
+        aiError = ""
+        aiNote = ""
+        const p = modeInfo?.provider
+        if (p && controller.aiChatProvider() === p.id)
+            for (const m of controller.aiHistory())
+                aiModel.append(m)
+        aiState = aiModel.count > 0 ? "done" : "idle"
+    }
+
+    function sendAi() {
+        const q = field.text.trim()
+        const p = modeInfo?.provider
+        if (!q || !p || aiState === "waiting" || aiState === "streaming") return
+        if (controller.aiChatProvider() !== p.id) aiModel.clear()
+        aiModel.append({ role: "user", text: q })
+        aiModel.append({ role: "assistant", text: "" })
+        aiState = "waiting"
+        aiError = ""
+        aiNote = ""
+        aiThinking = false
+        aiStarted = Date.now()
+        field.text = ""
+        controller.aiAsk(p.id, q)
+    }
+
+    function stopAi() {
+        controller.aiCancel()
+        const last = aiModel.count - 1
+        if (last >= 0 && aiModel.get(last).role === "assistant" && !aiModel.get(last).text) {
+            aiModel.remove(last)
+            if (aiModel.count > 0 && aiModel.get(aiModel.count - 1).role === "user") {
+                field.text = aiModel.get(aiModel.count - 1).text
+                aiModel.remove(aiModel.count - 1)
+            }
+        }
+        aiState = aiModel.count > 0 ? "done" : "idle"
+    }
+
+    function lastAiAnswer() {
+        for (let i = aiModel.count - 1; i >= 0; i--)
+            if (aiModel.get(i).role === "assistant" && aiModel.get(i).text) return aiModel.get(i).text
+        return ""
     }
 
     // ── Emoji ("e") ──────────────────────────────────────────────────
@@ -224,6 +298,10 @@ Window {
         for (const e of engines)
             add({ display: e.name, subtext: siteOf(e.url).replace(/^https?:\/\/(www\.)?/, ""), decoration: engineIcon(e),
                   category: engs, keyLabel: e.key + " ␣", action: "mode:engine:" + e.id })
+        const ais = tr("help.ai")
+        for (const p of aiProviders)
+            add({ display: p.name, subtext: p.model || siteOf(p.url).replace(/^https?:\/\//, ""), decoration: "dialog-messages",
+                  category: ais, keyLabel: p.key + " ␣", action: "mode:ai:" + p.id })
         add({ display: tr("help.settings"), subtext: tr("help.settingsDesc"), decoration: "configure",
               category: tr("app.name"), keyLabel: "", action: "settings" })
         const keys = tr("help.keys")
@@ -232,7 +310,8 @@ Window {
             ["⇧ ↵", "help.key.firstAction"], ["Tab", "help.key.actions"], ["Ctrl 1–9", "help.key.quick"],
             ["⇧ Del", "help.key.removeHistory"], ["⌫", "help.key.backspace"], ["Esc", "help.key.escape"],
             ["Tab", "help.key.enterFolder"], ["Alt ↑", "help.key.parentFolder"], ["Ctrl ↵", "help.key.fileManager"],
-            ["Alt C", "help.key.copyPath"], ["Ctrl T", "help.key.terminalHere"], ["⇧ ↵", "help.key.copyName"]
+            ["Alt C", "help.key.copyPath"], ["Ctrl T", "help.key.terminalHere"], ["⇧ ↵", "help.key.copyName"],
+            ["Ctrl N", "help.key.newChat"]
         ]
         for (const [k, key] of shortcuts)
             add({ display: tr(key), subtext: "", decoration: "input-keyboard", category: keys, keyLabel: k, action: "" })
@@ -339,6 +418,7 @@ Window {
         controller.cancelCommand()
         cmdState = "idle"
         cmdOutput = ""
+        if (aiState === "waiting" || aiState === "streaming") stopAi()
         if (listKind !== "web") resetWeb()
         else controller.cancelWebSearch()
     }
@@ -416,6 +496,30 @@ Window {
             root.cmdTimedOut = timedOut
             root.cmdElapsed = elapsed
             root.cmdState = "done"
+        }
+        function onAiUpdate(text, thinking) {
+            if (aiModel.count === 0) return
+            aiModel.setProperty(aiModel.count - 1, "text", text)
+            root.aiThinking = thinking
+            if (text) root.aiState = "streaming"
+        }
+        function onAiFinished(error, stop) {
+            if (error) {
+                // Soru alana geri konur; düzeltip yeniden gönderilebilir
+                if (aiModel.count >= 2) {
+                    aiModel.remove(aiModel.count - 1)
+                    field.text = aiModel.get(aiModel.count - 1).text
+                    field.cursorPosition = field.text.length
+                    aiModel.remove(aiModel.count - 1)
+                }
+                root.aiError = error
+                root.aiState = "error"
+            } else {
+                root.aiState = "done"
+                root.aiNote = stop === "refusal" ? root.tr("ai.refused")
+                            : (stop === "length" || stop === "max_tokens") ? root.tr("ai.truncated") : ""
+            }
+            root.aiThinking = false
         }
         function onBrowseIndexReady() {
             if (root.listKind === "browse" && root.browseInfo.kind === "search") root.loadBrowse()
@@ -664,6 +768,10 @@ Window {
     }
 
     function runCurrent(shift) {
+        if (listKind === "ai") {
+            sendAi()
+            return
+        }
         if (listKind === "command") {
             runCommand()
             return
@@ -864,6 +972,8 @@ Window {
                     font.weight: Font.Normal
                     color: root.textColor
                     placeholderText: root.modeRunner === ":command" ? root.tr("search.placeholderCommand")
+                                   : root.modeRunner === ":ai" ? (aiModel.count > 0 ? root.tr("ai.followUp")
+                                                                  : root.tr("ai.placeholder", root.modeLabel(root.modeInfo)))
                                    : root.modeInfo ? root.tr("search.placeholderMode", root.modeLabel(root.modeInfo))
                                    : root.tr("search.placeholder", root.config.helpKey ?? "?")
                     placeholderTextColor: Qt.alpha(root.textColor, 0.38)
@@ -922,6 +1032,29 @@ Window {
                         }
                         // Klasör gezgini: Tab klasöre girer, Alt+↑ üst klasöre çıkar, Ctrl+↵ dosya
                         // yöneticisinde gösterir, Alt+C yolu kopyalar, Ctrl+T orada terminal açar
+                        if (root.listKind === "ai") {
+                            const busy = root.aiState === "waiting" || root.aiState === "streaming"
+                            if (event.key === Qt.Key_Escape && busy) {
+                                root.stopAi()
+                                event.accepted = true
+                                return
+                            }
+                            if (ctrl && event.key === Qt.Key_N) {
+                                controller.aiReset()
+                                aiModel.clear()
+                                root.aiState = "idle"
+                                root.aiError = ""
+                                root.aiNote = ""
+                                event.accepted = true
+                                return
+                            }
+                            if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_C) {
+                                const a = root.lastAiAnswer()
+                                if (a) controller.copyText(a)
+                                event.accepted = true
+                                return
+                            }
+                        }
                         if (root.listKind === "browse") {
                             const alt = event.modifiers & Qt.AltModifier
                             const sel = root.browseSel
@@ -1018,6 +1151,7 @@ Window {
                     implicitWidth: 22
                     implicitHeight: 22
                     running: (results.querying && root.listKind === "results") || root.cmdState === "running"
+                             || (root.listKind === "ai" && (root.aiState === "waiting" || root.aiState === "streaming"))
                     opacity: running ? 0.7 : 0
                     Behavior on opacity { NumberAnimation { duration: 150 } }
                 }
@@ -1028,7 +1162,7 @@ Window {
                 Layout.fillWidth: true
                 Layout.preferredHeight: 1
                 color: root.faintColor
-                visible: list.count > 0 || noResults.visible || commandPanel.visible
+                visible: list.count > 0 || noResults.visible || commandPanel.visible || aiPanel.visible
             }
 
             // ── Sonuçlar + önizleme ──────────────────────────────────
@@ -1514,6 +1648,153 @@ Window {
                 }
             }
 
+            // ── Yapay zekâ paneli ────────────────────────────────────
+            ColumnLayout {
+                id: aiPanel
+                Layout.fillWidth: true
+                Layout.leftMargin: 18
+                Layout.rightMargin: 18
+                Layout.topMargin: 12
+                Layout.bottomMargin: 14
+                visible: root.listKind === "ai"
+                spacing: 10
+
+                readonly property bool busy: root.aiState === "waiting" || root.aiState === "streaming"
+                readonly property var provider: root.modeInfo?.provider ?? null
+
+                RowLayout {
+                    Layout.fillWidth: true
+                    spacing: 10
+                    Kirigami.Icon {
+                        implicitWidth: 18
+                        implicitHeight: 18
+                        source: "dialog-messages"
+                    }
+                    Text {
+                        Layout.fillWidth: true
+                        text: aiPanel.provider ? aiPanel.provider.name + (aiPanel.provider.model ? "  ·  " + aiPanel.provider.model : "") : ""
+                        color: root.dimColor
+                        font.pixelSize: 12
+                        elide: Text.ElideRight
+                    }
+                    Text {
+                        visible: aiPanel.busy
+                        color: root.dimColor
+                        font.pixelSize: 12
+                        // Yerel modelin ilk yanıtı modelin belleğe yüklenmesini bekler
+                        text: root.aiState === "streaming" ? root.tr("ai.writing")
+                            : root.aiThinking ? root.tr("ai.thinking")
+                            : aiClock.slow ? root.tr("ai.loading") : root.tr("ai.waiting")
+                        Timer {
+                            id: aiClock
+                            property bool slow: false
+                            interval: 500
+                            repeat: true
+                            running: root.aiState === "waiting"
+                            onRunningChanged: if (running) slow = false
+                            onTriggered: slow = Date.now() - root.aiStarted > 4000
+                        }
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: aiModel.count === 0 && root.aiState !== "error"
+                    text: root.tr("ai.empty", aiPanel.provider ? aiPanel.provider.name : "")
+                    color: root.dimColor
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.aiState === "error"
+                    text: root.tr("ai.error", root.aiError)
+                    color: Kirigami.Theme.negativeTextColor
+                    font.pixelSize: 13
+                    wrapMode: Text.WordWrap
+                }
+
+                Flickable {
+                    id: aiFlick
+                    Layout.fillWidth: true
+                    Layout.preferredHeight: Math.min(aiColumn.implicitHeight, 430)
+                    visible: aiModel.count > 0
+                    clip: true
+                    contentWidth: width
+                    contentHeight: aiColumn.implicitHeight
+                    boundsBehavior: Flickable.StopAtBounds
+                    QQC2.ScrollBar.vertical: QQC2.ScrollBar {
+                        background: Item {}
+                    }
+                    // Yanıt gelirken en alta kaydırılır
+                    onContentHeightChanged: if (aiPanel.busy) contentY = Math.max(0, contentHeight - height)
+
+                    Column {
+                        id: aiColumn
+                        width: aiFlick.width - 12
+                        spacing: 12
+
+                        Repeater {
+                            model: aiModel
+                            delegate: Item {
+                                id: aiMsg
+                                required property string role
+                                required property string text
+                                readonly property bool user: role === "user"
+                                width: aiColumn.width
+                                height: user ? userBubble.height : answer.implicitHeight
+
+                                Rectangle {
+                                    id: userBubble
+                                    visible: aiMsg.user
+                                    anchors.right: parent.right
+                                    width: Math.min(question.implicitWidth, aiColumn.width * 0.8 - 24) + 24
+                                    height: question.implicitHeight + 16
+                                    radius: 10
+                                    color: Qt.alpha(root.accent, 0.18)
+                                    Text {
+                                        id: question
+                                        x: 12
+                                        y: 8
+                                        width: Math.min(implicitWidth, aiColumn.width * 0.8 - 24)
+                                        text: aiMsg.user ? aiMsg.text : ""
+                                        color: root.textColor
+                                        font.pixelSize: 14
+                                        wrapMode: Text.Wrap
+                                        textFormat: Text.PlainText
+                                    }
+                                }
+
+                                TextEdit {
+                                    id: answer
+                                    visible: !aiMsg.user
+                                    width: parent.width
+                                    readOnly: true
+                                    selectByMouse: true
+                                    text: aiMsg.user ? "" : (aiMsg.text || "…")
+                                    color: aiMsg.text ? root.textColor : root.dimColor
+                                    selectionColor: Qt.alpha(root.accent, 0.5)
+                                    font.pixelSize: 14
+                                    wrapMode: TextEdit.Wrap
+                                    textFormat: TextEdit.MarkdownText
+                                    onLinkActivated: link => root.openExternal(link)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Text {
+                    Layout.fillWidth: true
+                    visible: root.aiNote !== ""
+                    text: root.aiNote
+                    color: Kirigami.Theme.neutralTextColor
+                    font.pixelSize: 12
+                    wrapMode: Text.WordWrap
+                }
+            }
+
             // ── Komut paneli ─────────────────────────────────────────
             ColumnLayout {
                 id: commandPanel
@@ -1634,7 +1915,7 @@ Window {
                 Layout.rightMargin: 14
                 // Sonuçlar boşalınca düzenden hemen çıkar (kart tek seferde küçülsün);
                 // görünürken solarak belirir.
-                visible: root.config.showFooter !== false && (list.count > 0 || commandPanel.visible)
+                visible: root.config.showFooter !== false && (list.count > 0 || commandPanel.visible || aiPanel.visible)
                 opacity: visible ? 1 : 0
                 Behavior on opacity {
                     NumberAnimation { duration: 220; easing.type: Easing.OutCubic }
@@ -1652,6 +1933,7 @@ Window {
                         if (root.listKind === "help") return root.tr("mode.help")
                         if (root.listKind === "engine") return root.modeLabel(root.modeInfo)
                         if (root.listKind === "emoji") return root.tr("emoji.count", list.count)
+                        if (root.listKind === "ai") return root.modeLabel(root.modeInfo)
                         if (root.listKind === "browse") {
                             const b = root.browseInfo
                             if (b.kind === "dir") return b.dir + "  ·  " + root.tr("preview.items", b.total)
@@ -1672,9 +1954,14 @@ Window {
                 }
                 readonly property bool cmd: root.listKind === "command"
                 readonly property bool browse: root.listKind === "browse"
-                Hint { keys: "↑↓"; label: root.tr("hint.navigate"); visible: !footer.cmd && !footer.browse }
+                readonly property bool ai: root.listKind === "ai"
+                Hint { keys: "↵"; label: root.tr("hint.send"); visible: footer.ai && !aiPanel.busy }
+                Hint { keys: "Esc"; label: root.tr("hint.stop"); visible: footer.ai && aiPanel.busy }
+                Hint { keys: "Alt C"; label: root.tr("hint.copyAnswer"); visible: footer.ai && aiModel.count > 0 && !aiPanel.busy }
+                Hint { keys: "Ctrl N"; label: root.tr("hint.newChat"); visible: footer.ai && aiModel.count > 0 }
+                Hint { keys: "↑↓"; label: root.tr("hint.navigate"); visible: !footer.cmd && !footer.browse && !footer.ai }
                 Hint { keys: "↵"; label: footer.cmd ? root.tr("hint.run") : ["clip", "emoji"].includes(root.listKind) ? root.tr("hint.toClipboard")
-                                       : root.browseSel?.isDir ? root.tr("hint.enterFolder") : root.tr("hint.open") }
+                                       : root.browseSel?.isDir ? root.tr("hint.enterFolder") : root.tr("hint.open"); visible: !footer.ai }
                 Hint { keys: "⇧ ↵"; label: root.tr("hint.copyName"); visible: root.listKind === "emoji" && list.count > 0 }
                 Hint { keys: "Ctrl ↑↓"; label: root.tr("hint.category"); visible: root.listKind === "emoji" && field.text === "" }
                 Hint { keys: "Alt ↑"; label: root.tr("hint.parentFolder"); visible: footer.browse && root.browseInfo.kind === "dir" }
@@ -1682,11 +1969,11 @@ Window {
                 Hint { keys: "Alt C"; label: root.tr("hint.copyPath"); visible: footer.browse && root.browseSel !== null }
                 Hint { keys: "Ctrl ↵"; label: root.tr("hint.terminal"); visible: footer.cmd }
                 Hint { keys: "Alt C"; label: root.tr("hint.copyOutput"); visible: footer.cmd && root.cmdState === "done" }
-                Hint { keys: "Ctrl 1–9"; label: root.tr("hint.quickSelect"); visible: !footer.cmd && !footer.browse && root.listKind !== "emoji" }
+                Hint { keys: "Ctrl 1–9"; label: root.tr("hint.quickSelect"); visible: !footer.cmd && !footer.browse && root.listKind !== "emoji" && !footer.ai }
                 Hint { keys: "Tab"; label: root.tr("hint.actions"); visible: root.currentActions().length > 0 }
                 Hint { keys: "⇧ Del"; label: root.tr("hint.removeHistory"); visible: root.historyMode }
                 Hint { keys: root.config.helpKey ?? "?"; label: root.tr("hint.help"); visible: root.historyMode }
-                Hint { keys: "Esc"; label: root.mode !== "" && field.text.length === 0 ? root.tr("hint.exitMode") : root.tr("hint.close") }
+                Hint { keys: "Esc"; label: root.mode !== "" && field.text.length === 0 ? root.tr("hint.exitMode") : root.tr("hint.close"); visible: !(footer.ai && aiPanel.busy) }
             }
         }
     }

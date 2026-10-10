@@ -53,6 +53,17 @@ QQC2.ApplicationWindow {
         controller.saveConfig(cfg)
     }
 
+    // Kullanım rehberlerindeki önekler ayarlardaki güncel değerlerden gelir
+    function modeKey(id) {
+        const m = (cfg.modes ?? []).find(m => m.id === id)
+        return m ? m.key : ""
+    }
+
+    function aiKey() {
+        const p = (cfg.aiProviders ?? []).find(p => p.enabled && p.key)
+        return p ? p.key : "ai"
+    }
+
     function updateMode(i, patch) {
         const ms = cfg.modes.map(m => Object.assign({}, m))
         Object.assign(ms[i], patch)
@@ -84,6 +95,37 @@ QQC2.ApplicationWindow {
         const es = cfg.searchEngines.map(e => Object.assign({}, e))
         Object.assign(es[i], patch)
         setv("searchEngines", es)
+    }
+
+    // Yapay zekâ sağlayıcıları; API anahtarları ayar dosyasına değil ayrı, korumalı bir dosyaya yazılır
+    property var aiModelLists: ({})
+    property var aiModelErrors: ({})
+    property int aiKeyTick: 0
+
+    function updateProvider(i, patch) {
+        const ps = cfg.aiProviders.map(p => Object.assign({}, p))
+        Object.assign(ps[i], patch)
+        setv("aiProviders", ps)
+    }
+
+    function addProvider(presetId) {
+        const preset = controller.aiPresets()[presetId]
+        const used = cfg.aiProviders.map(p => p.key).concat(cfg.modes.map(m => m.key), cfg.searchEngines.map(e => e.key))
+        let key = presetId === "anthropic" ? "claude" : presetId === "openai" ? "gpt" : "ai"
+        let n = 2
+        const base = key
+        while (used.includes(key)) key = base + n++
+        setv("aiProviders", cfg.aiProviders.concat([Object.assign({ effort: "" }, preset,
+                                                                    { id: presetId + "-" + Date.now(), key: key, enabled: true })]))
+    }
+
+    function providerConflict(i) {
+        const p = cfg.aiProviders[i]
+        if (!p.enabled || !p.key) return false
+        if (p.key === cfg.helpKey) return true
+        return cfg.modes.some(m => m.enabled && m.key === p.key)
+            || cfg.searchEngines.some(e => e.enabled && e.key === p.key)
+            || cfg.aiProviders.some((o, j) => j !== i && o.enabled && o.key === p.key)
     }
 
     // Site simgeleri indirildikçe yeniden sorulur
@@ -119,6 +161,14 @@ QQC2.ApplicationWindow {
             win.needsRestart = win.controller.needsRestart()
         }
         function onFaviconReady(host) { win.faviconTick++ }
+        function onAiModelsReady(pid, models, error) {
+            const lists = Object.assign({}, win.aiModelLists)
+            lists[pid] = models
+            win.aiModelLists = lists
+            const errors = Object.assign({}, win.aiModelErrors)
+            errors[pid] = error
+            win.aiModelErrors = errors
+        }
         function onStringsChanged(s) {
             win.strings = s
             win.rtl = win.controller.isRtl()
@@ -133,6 +183,7 @@ QQC2.ApplicationWindow {
         { id: "behavior", icon: "preferences-system-windows-behavior" },
         { id: "prefixes", icon: "input-keyboard" },
         { id: "engines", icon: "internet-web-browser" },
+        { id: "ai", icon: "dialog-messages" },
         { id: "command", icon: "utilities-terminal" },
         { id: "data", icon: "document-save" },
         { id: "about", icon: "help-about" }
@@ -289,6 +340,12 @@ QQC2.ApplicationWindow {
                         font: Kirigami.Theme.smallFont
                         text: win.tr("general.searchPluginsNote")
                     }
+                }
+                Kirigami.Separator { Layout.fillWidth: true; Layout.topMargin: Kirigami.Units.largeSpacing }
+                UsageGuide {
+                    title: win.tr("guide.title")
+                    intro: win.tr("guide.general.intro", win.cfg.helpKey ?? "?")
+                    rows: [["↑ ↓", win.tr("help.key.navigate")], ["Ctrl ↑ ↓", win.tr("help.key.category")], ["↵", win.tr("help.key.open")], ["⇧ ↵", win.tr("help.key.firstAction")], ["Tab", win.tr("help.key.actions")], ["Ctrl 1–9", win.tr("help.key.quick")], ["⇧ Del", win.tr("help.key.removeHistory")], ["⌫", win.tr("help.key.backspace")], ["Esc", win.tr("help.key.escape")]]
                 }
             }
 
@@ -534,6 +591,27 @@ QQC2.ApplicationWindow {
                         }
                     }
                 }
+                Kirigami.Separator { Layout.fillWidth: true; Layout.topMargin: Kirigami.Units.largeSpacing }
+                UsageGuide {
+                    title: win.tr("mode.browse")
+                    intro: win.tr("guide.browse.intro", win.modeKey("browse"))
+                    rows: [["↵  Tab", win.tr("guide.browse.enter")], ["Alt ↑", win.tr("guide.browse.up")], ["Ctrl ↵", win.tr("guide.browse.fm")], ["Alt C", win.tr("guide.browse.copy")], ["Ctrl T", win.tr("guide.browse.terminal")]]
+                }
+                UsageGuide {
+                    title: win.tr("mode.emoji")
+                    intro: win.tr("guide.emoji.intro", win.modeKey("emoji"))
+                    rows: [["↵", win.tr("guide.emoji.copy")], ["⇧ ↵", win.tr("guide.emoji.name")], ["Ctrl ↑ ↓", win.tr("guide.emoji.category")]]
+                }
+                UsageGuide {
+                    title: win.tr("mode.clipboard")
+                    intro: win.tr("guide.clip.intro", win.modeKey("clipboard"))
+                    rows: [["↵", win.tr("guide.clip.copy")]]
+                }
+                UsageGuide {
+                    title: win.tr("mode.calc")
+                    intro: win.tr("guide.calc.intro", win.modeKey("calc"))
+                    rows: []
+                }
             }
 
             // Arama motorları
@@ -645,6 +723,210 @@ QQC2.ApplicationWindow {
                         }
                     }
                 }
+                Kirigami.Separator { Layout.fillWidth: true; Layout.topMargin: Kirigami.Units.largeSpacing }
+                UsageGuide {
+                    title: win.tr("mode.web")
+                    intro: win.tr("guide.web.intro", win.modeKey("web"))
+                    rows: [["↵", win.tr("guide.web.open")]]
+                }
+                UsageGuide {
+                    title: win.tr("help.engines")
+                    intro: win.tr("engines.note")
+                    rows: [["↵", win.tr("guide.engine.open")]]
+                }
+            }
+
+            // Yapay zekâ
+            Page {
+                title: win.tr("page.ai")
+                ColumnLayout {
+                    Layout.fillWidth: true
+                    Layout.maximumWidth: 900
+                    spacing: Kirigami.Units.largeSpacing
+
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        text: win.tr("aiset.note")
+                    }
+
+                    Repeater {
+                        model: win.cfg.aiProviders
+                        delegate: QQC2.Frame {
+                            id: providerCard
+                            required property var modelData
+                            required property int index
+                            readonly property bool anthropic: modelData.type === "anthropic"
+                            Layout.fillWidth: true
+
+                            GridLayout {
+                                anchors.left: parent.left
+                                anchors.right: parent.right
+                                columns: 2
+                                columnSpacing: Kirigami.Units.largeSpacing
+                                rowSpacing: Kirigami.Units.smallSpacing
+
+                                QQC2.Label { text: win.tr("engines.name") }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    QQC2.TextField {
+                                        Layout.fillWidth: true
+                                        text: providerCard.modelData.name
+                                        onEditingFinished: if (text.trim() && text !== providerCard.modelData.name) win.updateProvider(providerCard.index, { name: text.trim() })
+                                    }
+                                    QQC2.Switch {
+                                        checked: providerCard.modelData.enabled
+                                        onToggled: win.updateProvider(providerCard.index, { enabled: checked })
+                                        QQC2.ToolTip.text: win.tr("prefixes.enabled")
+                                        QQC2.ToolTip.visible: hovered
+                                        QQC2.ToolTip.delay: 500
+                                    }
+                                    QQC2.ToolButton {
+                                        icon.name: "edit-delete"
+                                        onClicked: win.setv("aiProviders", win.cfg.aiProviders.filter((_, j) => j !== providerCard.index))
+                                        QQC2.ToolTip.text: win.tr("prefixes.remove")
+                                        QQC2.ToolTip.visible: hovered
+                                    }
+                                }
+
+                                QQC2.Label { text: win.tr("engines.key") }
+                                RowLayout {
+                                    QQC2.TextField {
+                                        Layout.preferredWidth: 90
+                                        horizontalAlignment: Text.AlignHCenter
+                                        font.family: "monospace"
+                                        maximumLength: 12
+                                        text: providerCard.modelData.key
+                                        validator: RegularExpressionValidator { regularExpression: /\S{1,12}/ }
+                                        onEditingFinished: if (acceptableInput && text !== providerCard.modelData.key) win.updateProvider(providerCard.index, { key: text })
+                                    }
+                                    Kirigami.Icon {
+                                        source: "dialog-warning"
+                                        visible: win.providerConflict(providerCard.index)
+                                        implicitWidth: Kirigami.Units.iconSizes.small
+                                        implicitHeight: Kirigami.Units.iconSizes.small
+                                        HoverHandler { id: providerWarn }
+                                        QQC2.ToolTip.text: win.tr("engines.duplicate")
+                                        QQC2.ToolTip.visible: providerWarn.hovered
+                                    }
+                                }
+
+                                QQC2.Label { text: win.tr("aiset.type") }
+                                QQC2.ComboBox {
+                                    model: [win.tr("aiset.typeOpenai"), "Anthropic (Claude)"]
+                                    currentIndex: providerCard.anthropic ? 1 : 0
+                                    onActivated: win.updateProvider(providerCard.index, { type: currentIndex === 1 ? "anthropic" : "openai" })
+                                }
+
+                                QQC2.Label { text: win.tr("aiset.url") }
+                                QQC2.TextField {
+                                    Layout.fillWidth: true
+                                    font.family: "monospace"
+                                    text: providerCard.modelData.url
+                                    validator: RegularExpressionValidator { regularExpression: /https?:\/\/\S+/ }
+                                    onEditingFinished: if (acceptableInput && text !== providerCard.modelData.url) win.updateProvider(providerCard.index, { url: text })
+                                }
+
+                                QQC2.Label { text: win.tr("aiset.key") }
+                                QQC2.TextField {
+                                    Layout.fillWidth: true
+                                    echoMode: TextInput.Password
+                                    placeholderText: { win.aiKeyTick; return win.controller.aiHasKey(providerCard.modelData.id) ? win.tr("aiset.keySaved") : win.tr("aiset.keyNone") }
+                                    onEditingFinished: if (text) {
+                                        win.controller.setAiKey(providerCard.modelData.id, text)
+                                        text = ""
+                                        win.aiKeyTick++
+                                    }
+                                }
+
+                                QQC2.Label { text: win.tr("aiset.model") }
+                                RowLayout {
+                                    Layout.fillWidth: true
+                                    QQC2.ComboBox {
+                                        id: modelBox
+                                        Layout.fillWidth: true
+                                        editable: true
+                                        model: win.aiModelLists[providerCard.modelData.id] ?? []
+                                        editText: providerCard.modelData.model
+                                        onAccepted: if (editText !== providerCard.modelData.model) win.updateProvider(providerCard.index, { model: editText.trim() })
+                                        onActivated: win.updateProvider(providerCard.index, { model: currentText })
+                                        QQC2.ToolTip.text: win.tr("aiset.modelAuto")
+                                        QQC2.ToolTip.visible: hovered && !providerCard.modelData.model
+                                        QQC2.ToolTip.delay: 500
+                                    }
+                                    QQC2.Button {
+                                        icon.name: "view-refresh"
+                                        text: win.tr("aiset.fetchModels")
+                                        onClicked: win.controller.aiModels(providerCard.modelData.id)
+                                    }
+                                }
+                                Item { visible: !!win.aiModelErrors[providerCard.modelData.id] }
+                                QQC2.Label {
+                                    Layout.fillWidth: true
+                                    visible: !!win.aiModelErrors[providerCard.modelData.id]
+                                    text: win.aiModelErrors[providerCard.modelData.id] ?? ""
+                                    color: Kirigami.Theme.negativeTextColor
+                                    wrapMode: Text.WordWrap
+                                }
+
+                                QQC2.Label { text: win.tr("aiset.effort"); visible: providerCard.anthropic }
+                                QQC2.ComboBox {
+                                    visible: providerCard.anthropic
+                                    model: [win.tr("aiset.effortDefault"), "low", "medium", "high", "xhigh", "max"]
+                                    currentIndex: Math.max(0, ["", "low", "medium", "high", "xhigh", "max"].indexOf(providerCard.modelData.effort))
+                                    onActivated: win.updateProvider(providerCard.index, { effort: ["", "low", "medium", "high", "xhigh", "max"][currentIndex] })
+                                }
+                            }
+                        }
+                    }
+
+                    RowLayout {
+                        spacing: Kirigami.Units.largeSpacing
+                        QQC2.Button {
+                            text: win.tr("aiset.add")
+                            icon.name: "list-add"
+                            onClicked: presetMenu.popup()
+                            QQC2.Menu {
+                                id: presetMenu
+                                Instantiator {
+                                    model: ["ollama", "lmstudio", "llamacpp", "openai", "openrouter", "anthropic"]
+                                    delegate: QQC2.MenuItem {
+                                        required property string modelData
+                                        text: win.controller.aiPresets()[modelData].name
+                                        onTriggered: win.addProvider(modelData)
+                                    }
+                                    onObjectAdded: (index, object) => presetMenu.insertItem(index, object)
+                                    onObjectRemoved: (index, object) => presetMenu.removeItem(object)
+                                }
+                            }
+                        }
+                    }
+
+                    Kirigami.Separator { Layout.fillWidth: true }
+
+                    QQC2.Label { text: win.tr("aiset.systemPrompt") }
+                    QQC2.TextArea {
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: 90
+                        wrapMode: TextEdit.Wrap
+                        text: win.cfg.aiSystemPrompt
+                        placeholderText: win.tr("aiset.systemPromptDefault")
+                        onEditingFinished: if (text !== win.cfg.aiSystemPrompt) win.setv("aiSystemPrompt", text)
+                    }
+                    QQC2.Label {
+                        Layout.fillWidth: true
+                        wrapMode: Text.WordWrap
+                        opacity: 0.7
+                        font: Kirigami.Theme.smallFont
+                        text: win.tr("aiset.keysNote")
+                    }
+                }
+                Kirigami.Separator { Layout.fillWidth: true; Layout.topMargin: Kirigami.Units.largeSpacing }
+                UsageGuide {
+                    title: win.tr("guide.title")
+                    intro: win.tr("guide.ai.intro", win.aiKey())
+                    rows: [["↵", win.tr("guide.ai.send")], ["Esc", win.tr("guide.ai.stop")], ["Alt C", win.tr("guide.ai.copy")], ["Ctrl N", win.tr("guide.ai.newChat")]]
+                }
             }
 
             // Komutlar
@@ -674,6 +956,12 @@ QQC2.ApplicationWindow {
                         font: Kirigami.Theme.smallFont
                         text: win.tr("command.terminalNote")
                     }
+                }
+                Kirigami.Separator { Layout.fillWidth: true; Layout.topMargin: Kirigami.Units.largeSpacing }
+                UsageGuide {
+                    title: win.tr("guide.title")
+                    intro: win.tr("guide.cmd.intro", win.modeKey("command"))
+                    rows: [["↵", win.tr("guide.cmd.run")], ["Ctrl ↵", win.tr("guide.cmd.terminal")], ["Alt C", win.tr("guide.cmd.copy")]]
                 }
             }
 
@@ -784,6 +1072,63 @@ QQC2.ApplicationWindow {
                 Layout.bottomMargin: Kirigami.Units.smallSpacing
                 text: page.title
                 level: 1
+            }
+        }
+    }
+
+    // Bir özelliğin kullanımı: kısa açıklama ve tuş satırları
+    component UsageGuide: ColumnLayout {
+        id: usage
+        property string title
+        property string intro
+        property var rows: []
+        Layout.fillWidth: true
+        Layout.maximumWidth: 720
+        Layout.bottomMargin: Kirigami.Units.largeSpacing
+        spacing: Kirigami.Units.smallSpacing
+
+        Kirigami.Heading {
+            text: usage.title
+            level: 3
+        }
+        QQC2.Label {
+            Layout.fillWidth: true
+            visible: usage.intro !== ""
+            text: usage.intro
+            wrapMode: Text.WordWrap
+            opacity: 0.85
+        }
+        Repeater {
+            model: usage.rows
+            delegate: RowLayout {
+                required property var modelData
+                Layout.fillWidth: true
+                spacing: Kirigami.Units.largeSpacing
+                Item {
+                    Layout.preferredWidth: 96
+                    Layout.preferredHeight: keyCap.height
+                    Rectangle {
+                        id: keyCap
+                        width: keyText.implicitWidth + 14
+                        height: keyText.implicitHeight + 6
+                        radius: 4
+                        color: Qt.alpha(Kirigami.Theme.textColor, 0.06)
+                        border.width: 1
+                        border.color: Qt.alpha(Kirigami.Theme.textColor, 0.25)
+                        QQC2.Label {
+                            id: keyText
+                            anchors.centerIn: parent
+                            text: modelData[0]
+                            font.family: "monospace"
+                            font.pointSize: Kirigami.Theme.smallFont.pointSize
+                        }
+                    }
+                }
+                QQC2.Label {
+                    Layout.fillWidth: true
+                    text: modelData[1]
+                    wrapMode: Text.WordWrap
+                }
             }
         }
     }
