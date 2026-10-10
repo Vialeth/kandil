@@ -21,41 +21,110 @@ layout and a few extra features while keeping KRunner's search.
 
 The code was written by Claude Opus 5.5.
 
-<img src="docs/screenshots/hero.png" alt="Kandil with search results" width="820">
+<img src="docs/screenshots/hero.png" alt="Kandil browsing a folder of photos with an image preview" width="820">
 
 ## Features
 
-- Search results from all enabled KRunner plugins (applications, files,
-  System Settings, windows, calculator, unit converter and others).
-- With an empty search field, a list of recently and frequently opened items.
-- Ctrl+1 to Ctrl+9 open the first nine results directly.
-- Calculator and unit converter results are shown in a larger row; Enter copies
-  the result.
-- A preview panel for the selected result; for files it shows image thumbnails,
-  the first lines of text files, folder contents, size and modification date.
-- Prefixes that limit the search to one source, for example `f` for files.
-- A folder browser (`ff`): find a folder by name or type a path, move through
-  folders with the keyboard and preview folders, images, PDF files and text.
-- Web search with the `s` prefix: results from Brave Search are listed in the
-  panel and the selected one opens in the default browser. A typed address such
-  as `kde.org` opens directly without a prefix.
-- Search engine keywords such as `gg ubuntu` (Google) or `yt lofi` (YouTube)
-  that open the search in the browser. Engines can be added and edited in the
-  settings.
-- Clipboard history from Klipper, including images with a preview.
-- An emoji picker (`e`) with names and keywords in the interface language,
-  recently used emoji and a skin tone setting.
-- Running a shell command and showing its output in the panel.
-- Chat with a local model (Ollama, LM Studio, llama.cpp) or an online service
-  (Claude, OpenAI, OpenRouter, …) with the `ai` keyword; answers stream into
-  the panel.
-- A settings window and a JSON configuration file.
-- Interface translations for 31 languages.
+### KRunner search in a new window
+
+Kandil shows the results of every enabled KRunner plugin: applications, files,
+System Settings pages, open windows and others. The selected result is shown
+in a preview panel, with image thumbnails, the first lines of text files or the
+contents of a folder. With an empty search field, recently and frequently
+opened items are listed, and Ctrl+1 to Ctrl+9 open the first nine results.
+
+<img src="docs/screenshots/search.png" alt="A file search with an image preview" width="720">
+
+### Prefixes
+
+A short prefix and a space limit the search to one source, such as `a` for
+applications or `ss` for System Settings. The active source is shown as a label
+in the search field and Backspace removes it. Prefixes can be changed, and new
+ones can be added for any KRunner plugin.
+
+<img src="docs/screenshots/prefixes.png" alt="System Settings pages found with the ss prefix" width="720">
+
+### Calculator and unit converter
+
+Calculations and unit conversions such as `10 km > mi` are shown in a large
+row. Enter copies the result.
 
 <p>
-  <img src="docs/screenshots/calculator.png" alt="Calculation result" width="49%">
-  <img src="docs/screenshots/preview.png" alt="File preview" width="49%">
+  <img src="docs/screenshots/calculator.png" alt="A calculation result" width="49%">
+  <img src="docs/screenshots/unit-converter.png" alt="A unit conversion" width="49%">
 </p>
+
+### Browse folders
+
+`ff` opens the folder browser. A name finds folders anywhere in the home folder
+and on mounted drives, and a path such as `~/Documents/` lists that folder.
+Folders, images, PDF files and text files are previewed as you move through
+them, all with the keyboard. [More…](#folder-browser)
+
+<img src="docs/screenshots/folder-browser.png" alt="Folder browser with a preview of the selected folder" width="720">
+
+### Web search
+
+`s` and a query list Brave Search results inside Kandil, with site icons and a
+short description. The selected result opens in the default browser. Addresses
+such as `kde.org` open directly, without a prefix.
+
+<img src="docs/screenshots/web-search.png" alt="Web search results for kde plasma" width="720">
+
+### Search engine keywords
+
+Keywords such as `gg` (Google), `yt` (YouTube) or `wiki` (Wikipedia) open the
+search on that site in the browser. Any site with a search address can be
+added in the settings. [More…](#search-engines)
+
+<img src="docs/screenshots/search-engines.png" alt="The wiki keyword searching Wikipedia" width="560">
+
+### Emoji picker
+
+`e` finds emoji by their name or keywords, in the interface language and in
+English. Enter copies the emoji, Shift+Enter its name. Recently used emoji come
+first, and a skin tone can be chosen in the settings. [More…](#emoji)
+
+<img src="docs/screenshots/emoji.png" alt="Emoji picker showing heart emoji" width="720">
+
+### AI chat
+
+The `ai` keyword asks a language model and the answer streams into the panel
+as formatted text; follow-up questions continue the conversation. A local model
+on Ollama works out of the box, and LM Studio, llama.cpp, OpenAI-compatible
+services and Claude can be added in the settings. [Local AI guide](docs/local-ai.md)
+
+<img src="docs/screenshots/ai-chat.png" alt="A conversation with a local model" width="560">
+
+### Shell commands
+
+`>` runs a shell command when Enter is pressed and shows its output and exit
+code in the panel. Ctrl+Enter runs it in a terminal and Alt+C copies the output.
+
+<img src="docs/screenshots/command.png" alt="Output of a shell command" width="560">
+
+### Clipboard history
+
+`c` lists Klipper's clipboard history, including copied images with a preview.
+Typing filters the entries and Enter copies one back to the clipboard.
+
+<img src="docs/screenshots/clipboard.png" alt="Clipboard history with images" width="720">
+
+### Help in the launcher
+
+`?` in the empty search field lists all prefixes and keyboard shortcuts. The
+entry between them opens the settings.
+
+<img src="docs/screenshots/help.png" alt="Help list with all prefixes" width="560">
+
+### Settings and translations
+
+A settings window covers the appearance, animations, behavior, prefixes,
+search engines, AI providers and commands, and each page explains how the
+feature is used. Changes apply immediately. The interface is translated into
+31 languages, including right-to-left layouts.
+
+<img src="docs/screenshots/settings.png" alt="Settings window" width="720">
 
 ## Requirements
 
@@ -108,8 +177,6 @@ settings.
 Press Alt+Space, type a query and press Enter. Typing `?` in the empty search
 field shows the list of prefixes and keyboard shortcuts. The entry between the
 two opens the settings.
-
-<img src="docs/screenshots/help.png" alt="Help list" width="720">
 
 ### Prefixes
 
@@ -247,14 +314,7 @@ In command mode (`>`), Enter runs the command, Ctrl+Enter runs it in a terminal
 and Alt+C copies the output. Commands are only run when Enter is pressed and
 are stopped after a timeout (10 seconds by default).
 
-<p>
-  <img src="docs/screenshots/clipboard.png" alt="Clipboard history" width="49%">
-  <img src="docs/screenshots/command.png" alt="Command output" width="49%">
-</p>
-
 ## Configuration
-
-<img src="docs/screenshots/settings.png" alt="Settings window" width="720">
 
 The settings window has the following pages:
 
