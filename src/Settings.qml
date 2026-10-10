@@ -368,6 +368,16 @@ QQC2.ApplicationWindow {
                     SwitchRow { Kirigami.FormData.label: win.tr("behavior.history"); key: "historyEnabled" }
                     SpinRow { Kirigami.FormData.label: win.tr("behavior.historyCount"); key: "historyCount"; from: 2; to: 16; enabled: win.cfg.historyEnabled }
                     SpinRow { Kirigami.FormData.label: win.tr("behavior.resultLimit"); key: "resultLimit"; from: 5; to: 80 }
+
+                    Item { Kirigami.FormData.isSection: true }
+
+                    // Ten rengi seçenekleri dilden bağımsız olarak örnek emojilerle gösterilir
+                    QQC2.ComboBox {
+                        Kirigami.FormData.label: win.tr("behavior.emojiSkinTone")
+                        model: ["🖐️", "🖐🏻", "🖐🏼", "🖐🏽", "🖐🏾", "🖐🏿"]
+                        currentIndex: win.cfg.emojiSkinTone ?? 0
+                        onActivated: win.setv("emojiSkinTone", currentIndex)
+                    }
                 }
             }
 
@@ -686,6 +696,13 @@ QQC2.ApplicationWindow {
                                 win.historySize = 0
                             }
                         }
+                    }
+
+                    ConfirmButton {
+                        Kirigami.FormData.label: win.tr("data.emojiRecent")
+                        text: win.tr("data.clearEmoji")
+                        icon.name: "edit-clear-history"
+                        onConfirmed: win.controller.clearEmojiRecent()
                     }
 
                     QQC2.Button {

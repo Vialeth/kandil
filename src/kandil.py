@@ -13,6 +13,7 @@ Komut satırı (kurulum/kaldırma betikleri kullanır):
 """
 import copy
 import ctypes
+import gettext
 import glob
 import hashlib
 import html
@@ -20,11 +21,13 @@ import json
 import os
 import re
 import shlex
+import struct
 import subprocess
 import sys
 import threading
 import time
 import unicodedata
+import zlib
 
 import shiboken6
 from PySide6.QtCore import (ClassInfo, QDir, QFileInfo, QFileSystemWatcher, QLibraryInfo, QLocale, QMargins,
@@ -42,6 +45,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 I18N_DIR = os.path.join(HERE, "i18n")
 STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "kandil")
 HISTORY_FILE = os.path.join(STATE_DIR, "history.json")
+EMOJI_RECENT_FILE = os.path.join(STATE_DIR, "emoji.json")
 HISTORY_LIMIT = 200
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "kandil")
@@ -61,6 +65,7 @@ BUILTIN_MODES = [
     {"id": "settings", "key": "ss", "runner": "krunner_systemsettings", "icon": "preferences-system"},
     {"id": "web", "key": "s", "runner": ":web", "icon": "internet-web-browser"},
     {"id": "calc", "key": "=", "runner": "calculator", "icon": "accessories-calculator"},
+    {"id": "emoji", "key": "e", "runner": ":emoji", "icon": "preferences-desktop-emoticons"},
     {"id": "clipboard", "key": "c", "runner": ":clipboard", "icon": "klipper"},
     {"id": "command", "key": ">", "runner": ":command", "icon": "utilities-terminal"},
 ]
@@ -96,6 +101,17 @@ BROWSE_LIMIT = 300
 BROWSE_SEARCH_LIMIT = 40
 BROWSE_INDEX_TTL = 120          # saniye; daha eski dizin mod açılınca yenilenir
 
+# Emoji seçici ("e"). Veriler Plasma'nın emoji seçicisinin (plasma-emojier) dil sözlüklerinden,
+# kategori ve ten rengi adları onun çeviri kataloğundan okunur.
+EMOJI_CATEGORIES = {1: "Smileys and Emotion", 2: "People and Body", 3: "Component", 4: "Animals and Nature",
+                    5: "Food and Drink", 6: "Travel and Places", 7: "Activities", 8: "Objects", 9: "Symbols",
+                    10: "Flags"}
+EMOJI_LANG_FILES = {"zh_CN": "zh", "zh_TW": "zh_Hant", "pt_BR": "pt", "nb": "no"}
+EMOJI_TONES = "\U0001F3FB\U0001F3FC\U0001F3FD\U0001F3FE\U0001F3FF"
+EMOJI_TONE_RE = re.compile("[" + EMOJI_TONES + "]")
+EMOJI_LIMIT = 80
+EMOJI_RECENT_LIMIT = 24
+
 # Ayar dosyasında olmayan anahtarlar bu değerlerle tamamlanır.
 DEFAULT_CONFIG = {
     "language": "system",
@@ -125,6 +141,7 @@ DEFAULT_CONFIG = {
     "rememberQuery": False,
     "historyEnabled": True,
     "historyCount": 6,
+    "emojiSkinTone": 0,          # 0 nötr, 1–5 açıktan koyuya
     "resultLimit": 25,
     # Komutlar
     "commandTimeout": 10,
@@ -258,6 +275,87 @@ def web_search_url(query):
     url = QUrl(WEB_SEARCH_URL)
     url.setQuery("q=" + QUrl.toPercentEncoding(query).data().decode() + "&source=web")
     return url
+
+
+# ── Emoji ────────────────────────────────────────────────────────────
+def read_emoji_dict(path):
+    """plasma-emojier sözlüğü: qCompress + küçük endian (adet; emoji, ad, kategori, [anahtar kelimeler])."""
+    with open(path, "rb") as f:
+        raw = zlib.decompress(f.read()[4:])
+    pos = 0
+
+    def u32():
+        nonlocal pos
+        pos += 4
+        return struct.unpack_from("<I", raw, pos - 4)[0]
+
+    def text():
+        nonlocal pos
+        n = u32()
+        pos += n
+        return raw[pos - n:pos].decode("utf-8", errors="replace")
+
+    out = []
+    for _ in range(u32()):
+        glyph, name, category = text(), text(), u32()
+        out.append((glyph, name, category, [text() for _ in range(u32())]))
+    return out
+
+
+def emoji_dict_path(lang):
+    base = QStandardPaths.locate(QStandardPaths.GenericDataLocation, "plasma/emoji", QStandardPaths.LocateDirectory)
+    if not base:
+        return ""
+    for name in (lang, EMOJI_LANG_FILES.get(lang), lang.split("_")[0], "en"):
+        if name and os.path.exists(os.path.join(base, name + ".dict")):
+            return os.path.join(base, name + ".dict")
+    return ""
+
+
+def load_emoji(lang):
+    """Ana emojiler (ten rengi varyantları ana emojiye bağlanır), arama için katlanmış anahtar kelimelerle."""
+    local = read_emoji_dict(emoji_dict_path(lang)) if emoji_dict_path(lang) else []
+    english = {} if lang.startswith("en") else {
+        g: [n] + a for g, n, _, a in read_emoji_dict(emoji_dict_path("en"))} if emoji_dict_path("en") else {}
+    entries, by_key = [], {}
+    for glyph, name, category, annotations in local:
+        if EMOJI_TONE_RE.search(glyph):
+            continue
+        words = [name] + annotations + english.get(glyph, [])
+        e = {"glyph": glyph, "name": name, "category": category, "annotations": annotations,
+             "keys": [fold(w) for w in words], "tones": {}}
+        entries.append(e)
+        by_key[glyph.replace("\uFE0F", "")] = e
+    for glyph, *_ in local:
+        tones = set(EMOJI_TONE_RE.findall(glyph))
+        if len(tones) == 1:
+            base = by_key.get(EMOJI_TONE_RE.sub("", glyph).replace("\uFE0F", ""))
+            if base is not None:
+                base["tones"][EMOJI_TONES.index(tones.pop()) + 1] = glyph
+    return entries
+
+
+def emoji_score(e, words):
+    """Her kelime adda ya da anahtar kelimelerde geçmeli; küçük puan daha iyi."""
+    total = 0
+    for w in words:
+        best = None
+        for i, k in enumerate(e["keys"]):
+            if k == w:
+                score = 0 if i == 0 else 3
+            elif k.startswith(w):
+                score = 1 if i == 0 else 4
+            elif (" " + w) in (" " + k):
+                score = 2 if i == 0 else 5
+            elif len(w) >= 4 and w in k:          # kısa sorgularda kelime içi eşleşme gürültü üretir
+                score = 6
+            else:
+                continue
+            best = score if best is None else min(best, score)
+        if best is None:
+            return None
+        total += best
+    return total
 
 
 # ── Çeviriler ────────────────────────────────────────────────────────
@@ -658,6 +756,9 @@ class Controller(QObject):
         self.web_cache = {}
         self.favicon_pending = set()
         self.folder_index = None
+        self.emoji = None
+        self.emoji_lang = ""
+        self.emoji_catalog = None
         self.folder_index_time = 0
         self.folder_index_building = False
         self.browseIndexReady.connect(lambda: setattr(self, "folder_index_building", False))
@@ -1066,6 +1167,64 @@ class Controller(QObject):
         folder = os.path.dirname(os.path.expanduser(text)) if text.startswith(("/", "~")) else HOME
         parent = os.path.dirname(folder.rstrip("/")) or "/"
         return "/" if parent == "/" else tilde(parent) + "/"
+
+    # ── Emoji ────────────────────────────────────────────────────────
+    def emoji_data(self):
+        if self.emoji is None or self.emoji_lang != self.language:
+            self.emoji, self.emoji_lang = load_emoji(self.language), self.language
+            self.emoji_catalog = gettext.translation("org.kde.plasma.emojier", "/usr/share/locale",
+                                                     [self.language, self.language.split("_")[0]], fallback=True)
+        return self.emoji
+
+    def emoji_category(self, number):
+        return self.emoji_catalog.pgettext("Emoji Category", EMOJI_CATEGORIES.get(number, ""))
+
+    def emoji_entry(self, e, category):
+        tone = int(self.config["emojiSkinTone"])
+        glyph = e["tones"].get(tone, e["glyph"])
+        return {"matchId": "emoji:" + e["glyph"], "base": e["glyph"], "glyph": glyph, "display": e["name"],
+                "subtext": ", ".join(a for a in e["annotations"] if a != e["name"])[:120],
+                "decoration": "", "category": category, "multiLine": False, "keyLabel": "",
+                "codepoints": " ".join(f"U+{ord(c):04X}" for c in glyph if ord(c) != 0xFE0F),
+                "variants": " ".join(e["tones"][t] for t in sorted(e["tones"])),
+                "keywords": ", ".join(e["annotations"]), "categoryName": self.emoji_category(e["category"])}
+
+    def emoji_recent(self):
+        try:
+            with open(EMOJI_RECENT_FILE, encoding="utf-8") as f:
+                recent = json.load(f)
+            return [g for g in recent if isinstance(g, str)]
+        except (OSError, ValueError):
+            return []
+
+    @Slot(str, result="QVariantList")
+    def emojiList(self, query):
+        """Boş sorguda son kullanılanlar ve kategorilere göre bütün emojiler, aksi hâlde eşleşenler."""
+        data = self.emoji_data()
+        words = [fold(w) for w in query.split()]
+        if words:
+            ranked = sorted(((score, i, e) for i, e in enumerate(data)
+                             if (score := emoji_score(e, words)) is not None), key=lambda r: r[:2])
+            return [self.emoji_entry(e, self.emoji_category(e["category"])) for _, _, e in ranked[:EMOJI_LIMIT]]
+        by_glyph = {e["glyph"]: e for e in data}
+        out = [self.emoji_entry(by_glyph[g], self.t("emoji.recent")) for g in self.emoji_recent() if g in by_glyph]
+        return out + [self.emoji_entry(e, self.emoji_category(e["category"])) for e in data]
+
+    @Slot(str, str)
+    def useEmoji(self, base, text):
+        """Seçilen metni (emoji ya da adı) panoya kopyalar ve emojiyi son kullanılanların başına alır."""
+        self.copyText(text)
+        recent = [base] + [g for g in self.emoji_recent() if g != base]
+        os.makedirs(STATE_DIR, exist_ok=True)
+        with open(EMOJI_RECENT_FILE, "w", encoding="utf-8") as f:
+            json.dump(recent[:EMOJI_RECENT_LIMIT], f, ensure_ascii=False)
+
+    @Slot()
+    def clearEmojiRecent(self):
+        try:
+            os.remove(EMOJI_RECENT_FILE)
+        except OSError:
+            pass
 
     @Slot(str)
     def showInFileManager(self, url):

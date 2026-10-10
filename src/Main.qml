@@ -94,6 +94,7 @@ Window {
                                      : modeRunner === ":web" ? "web"
                                      : modeRunner === ":engine" ? "engine"
                                      : modeRunner === ":browse" ? "browse"
+                                     : modeRunner === ":emoji" ? "emoji"
                                      : modeRunner === ":command" ? "command" : "results"
 
     // Komut modu durumu
@@ -145,6 +146,21 @@ Window {
             controller.prepareBrowse()
             loadBrowse()
         }
+        if (listKind === "emoji") loadEmoji()
+        else if (emojiModel.count > 0) emojiModel.clear()
+    }
+
+    // ── Emoji ("e") ──────────────────────────────────────────────────
+    // Enter emojiyi, Shift+Enter adını panoya kopyalar. Boş sorguda son kullanılanlar ve
+    // kategoriler listelenir; Ctrl+↑/↓ kategoriler arasında atlar.
+    ListModel { id: emojiModel }
+
+    function loadEmoji() {
+        emojiModel.clear()
+        for (const e of controller.emojiList(field.text))
+            emojiModel.append(e)
+        list.currentIndex = 0
+        Qt.callLater(refreshPreview)
     }
 
     // ── Klasör gezgini ("ff") ────────────────────────────────────────
@@ -216,7 +232,7 @@ Window {
             ["⇧ ↵", "help.key.firstAction"], ["Tab", "help.key.actions"], ["Ctrl 1–9", "help.key.quick"],
             ["⇧ Del", "help.key.removeHistory"], ["⌫", "help.key.backspace"], ["Esc", "help.key.escape"],
             ["Tab", "help.key.enterFolder"], ["Alt ↑", "help.key.parentFolder"], ["Ctrl ↵", "help.key.fileManager"],
-            ["Alt C", "help.key.copyPath"], ["Ctrl T", "help.key.terminalHere"]
+            ["Alt C", "help.key.copyPath"], ["Ctrl T", "help.key.terminalHere"], ["⇧ ↵", "help.key.copyName"]
         ]
         for (const [k, key] of shortcuts)
             add({ display: tr(key), subtext: "", decoration: "input-keyboard", category: keys, keyLabel: k, action: "" })
@@ -239,7 +255,7 @@ Window {
     property bool hasResults: false
     readonly property bool previewMode: previewWidth > 0
         && ((listKind === "results" && hasResults)
-            || ((listKind === "clip" || listKind === "web" || listKind === "browse") && list.count > 0))
+            || (["clip", "web", "browse", "emoji"].includes(listKind) && list.count > 0))
     property var previewInfo: ({})
     onPreviewModeChanged: refreshPreview()
 
@@ -578,7 +594,8 @@ Window {
     function localModel() {
         return listKind === "history" ? historyModel : listKind === "clip" ? clipModel
              : listKind === "help" ? helpModel : listKind === "web" ? webModel
-             : listKind === "engine" ? engineModel : listKind === "browse" ? browseModel : null
+             : listKind === "engine" ? engineModel : listKind === "browse" ? browseModel
+             : listKind === "emoji" ? emojiModel : null
     }
 
     function idAt(i) {
@@ -610,6 +627,14 @@ Window {
         if (listKind === "clip") {
             if (i >= 0 && i < clipModel.count) {
                 controller.restoreClipboard(clipModel.get(i).clipIndex)
+                close()
+            }
+            return
+        }
+        if (listKind === "emoji") {
+            const em = i >= 0 && i < emojiModel.count ? emojiModel.get(i) : null
+            if (em) {
+                controller.useEmoji(em.base, shift ? em.display : em.glyph)
                 close()
             }
             return
@@ -690,6 +715,11 @@ Window {
             if (!e) return
             previewInfo = { exists: true, kind: "text", noMeta: true, name: root.tr("clip.item"),
                             location: e.subtext, icon: "edit-paste", text: e.fullText }
+        } else if (listKind === "emoji") {
+            const em = emojiModel.get(list.currentIndex)
+            if (!em) return
+            previewInfo = { exists: true, kind: "text", noMeta: true, name: em.display, location: em.codepoints,
+                            glyph: em.glyph, text: [em.categoryName, em.keywords, em.variants].filter(x => x).join("\n\n") }
         } else if (listKind === "browse") {
             const b = browseModel.get(list.currentIndex)
             if (!b) return
@@ -848,6 +878,7 @@ Window {
                         if (root.listKind === "web") root.queueWebSearch()
                         if (root.listKind === "engine") root.loadEngine()
                         if (root.listKind === "browse") root.loadBrowse()
+                        if (root.listKind === "emoji") root.loadEmoji()
                     }
 
                     Keys.onReleased: event => {
@@ -1029,6 +1060,7 @@ Window {
                          : root.listKind === "web" ? webModel
                          : root.listKind === "engine" ? engineModel
                          : root.listKind === "browse" ? browseModel
+                         : root.listKind === "emoji" ? emojiModel
                          : root.listKind === "command" ? null : results
                     keyNavigationWraps: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -1109,7 +1141,16 @@ Window {
                             spacing: 12
                             visible: !row.isHero
 
+                            Text {
+                                visible: !!row.model.glyph
+                                text: row.model.glyph ?? ""
+                                Layout.preferredWidth: root.iconSize
+                                Layout.alignment: Qt.AlignVCenter
+                                horizontalAlignment: Text.AlignHCenter
+                                font.pixelSize: Math.round(root.iconSize * 0.8)
+                            }
                             Kirigami.Icon {
+                                visible: !row.model.glyph
                                 source: row.model.decoration
                                 // Web sonuçlarında site simgesi yüklenemezse
                                 fallback: ["web", "engine", "help"].includes(root.listKind) ? "internet-web-browser" : "unknown"
@@ -1328,9 +1369,15 @@ Window {
                                     visible: false
                                     layer.enabled: true
                                 }
+                                Text {
+                                    anchors.centerIn: parent
+                                    visible: !!preview.info.glyph
+                                    text: preview.info.glyph ?? ""
+                                    font.pixelSize: 56
+                                }
                                 Kirigami.Icon {
                                     anchors.centerIn: parent
-                                    visible: preview.info.kind !== "image" || thumb.status === Image.Error
+                                    visible: !preview.info.glyph && (preview.info.kind !== "image" || thumb.status === Image.Error)
                                     implicitWidth: 64
                                     implicitHeight: 64
                                     source: preview.info.icon ?? ""
@@ -1557,7 +1604,8 @@ Window {
                 Layout.preferredHeight: 56
                 visible: list.count === 0 && ((root.listKind === "results" && !results.querying)
                                               || root.listKind === "clip" || root.listKind === "help"
-                                              || root.listKind === "web" || root.listKind === "browse")
+                                              || root.listKind === "web" || root.listKind === "browse"
+                                              || root.listKind === "emoji")
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 text: root.listKind === "clip" ? (field.text ? root.tr("clip.noMatch") : root.tr("clip.empty"))
@@ -1603,6 +1651,7 @@ Window {
                         if (root.listKind === "history") return root.tr("history.title")
                         if (root.listKind === "help") return root.tr("mode.help")
                         if (root.listKind === "engine") return root.modeLabel(root.modeInfo)
+                        if (root.listKind === "emoji") return root.tr("emoji.count", list.count)
                         if (root.listKind === "browse") {
                             const b = root.browseInfo
                             if (b.kind === "dir") return b.dir + "  ·  " + root.tr("preview.items", b.total)
@@ -1624,14 +1673,16 @@ Window {
                 readonly property bool cmd: root.listKind === "command"
                 readonly property bool browse: root.listKind === "browse"
                 Hint { keys: "↑↓"; label: root.tr("hint.navigate"); visible: !footer.cmd && !footer.browse }
-                Hint { keys: "↵"; label: footer.cmd ? root.tr("hint.run") : root.listKind === "clip" ? root.tr("hint.toClipboard")
+                Hint { keys: "↵"; label: footer.cmd ? root.tr("hint.run") : ["clip", "emoji"].includes(root.listKind) ? root.tr("hint.toClipboard")
                                        : root.browseSel?.isDir ? root.tr("hint.enterFolder") : root.tr("hint.open") }
+                Hint { keys: "⇧ ↵"; label: root.tr("hint.copyName"); visible: root.listKind === "emoji" && list.count > 0 }
+                Hint { keys: "Ctrl ↑↓"; label: root.tr("hint.category"); visible: root.listKind === "emoji" && field.text === "" }
                 Hint { keys: "Alt ↑"; label: root.tr("hint.parentFolder"); visible: footer.browse && root.browseInfo.kind === "dir" }
                 Hint { keys: "Ctrl ↵"; label: root.tr("hint.fileManager"); visible: footer.browse && root.browseSel !== null }
                 Hint { keys: "Alt C"; label: root.tr("hint.copyPath"); visible: footer.browse && root.browseSel !== null }
                 Hint { keys: "Ctrl ↵"; label: root.tr("hint.terminal"); visible: footer.cmd }
                 Hint { keys: "Alt C"; label: root.tr("hint.copyOutput"); visible: footer.cmd && root.cmdState === "done" }
-                Hint { keys: "Ctrl 1–9"; label: root.tr("hint.quickSelect"); visible: !footer.cmd && !footer.browse }
+                Hint { keys: "Ctrl 1–9"; label: root.tr("hint.quickSelect"); visible: !footer.cmd && !footer.browse && root.listKind !== "emoji" }
                 Hint { keys: "Tab"; label: root.tr("hint.actions"); visible: root.currentActions().length > 0 }
                 Hint { keys: "⇧ Del"; label: root.tr("hint.removeHistory"); visible: root.historyMode }
                 Hint { keys: root.config.helpKey ?? "?"; label: root.tr("hint.help"); visible: root.historyMode }

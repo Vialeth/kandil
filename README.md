@@ -43,6 +43,8 @@ The code was written by Claude Opus 5.5.
   that open the search in the browser. Engines can be added and edited in the
   settings.
 - Clipboard history search through Klipper.
+- An emoji picker (`e`) with names and keywords in the interface language,
+  recently used emoji and a skin tone setting.
 - Running a shell command and showing its output in the panel.
 - A settings window and a JSON configuration file.
 - Interface translations for 31 languages.
@@ -119,6 +121,7 @@ shown as a label in the search field and can be removed with Backspace.
 | `s` | Web search (Brave Search) | `s kde plasma` |
 | `ss` | System Settings | `ss bluetooth` |
 | `=` | Calculator | `= sqrt(2)` |
+| `e` | Emoji | `e heart` |
 | `c` | Clipboard history | `c address` |
 | `>` | Shell command | `> uptime` |
 
@@ -155,6 +158,18 @@ thumbnails with their dimensions, and the first lines of text files.
 | Ctrl+Enter | Open the folder, or show the file, in the file manager |
 | Alt+C | Copy the path |
 | Ctrl+T | Open a terminal in the folder |
+
+### Emoji
+
+The `e` prefix opens the emoji picker. Enter copies the selected emoji to the
+clipboard, Shift+Enter copies its name. With nothing typed, recently used emoji
+are listed first, followed by all emoji by category; Ctrl+Up and Ctrl+Down jump
+between categories. Emoji can be found by their name or keywords in the
+interface language and in English. The skin tone used for emoji that support it
+is set on the Behavior page of the settings.
+
+The emoji data and category names come from Plasma's emoji selector, which is
+installed with Plasma; no additional data is downloaded.
 
 ### Search engines
 
