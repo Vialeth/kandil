@@ -14,6 +14,7 @@
   "clip.noMatch": "No match in clipboard history",
   "clip.section": "Clipboard history",
   "clip.item": "Clipboard item",
+  "clip.image": "Image",
   "clip.lines": "%1 lines",
   "clip.chars": "%1 characters",
   "web.section": "Web results",

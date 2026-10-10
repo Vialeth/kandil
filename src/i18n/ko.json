@@ -14,6 +14,7 @@
   "clip.noMatch": "클립보드 기록에 일치하는 항목 없음",
   "clip.section": "클립보드 기록",
   "clip.item": "클립보드 항목",
+  "clip.image": "이미지",
   "clip.lines": "%1줄",
   "clip.chars": "%1자",
   "web.section": "웹 결과",

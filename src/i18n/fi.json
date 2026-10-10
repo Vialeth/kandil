@@ -14,6 +14,7 @@
   "clip.noMatch": "Leikepöydän historiasta ei löytynyt osumia",
   "clip.section": "Leikepöydän historia",
   "clip.item": "Leikepöydän kohde",
+  "clip.image": "Kuva",
   "clip.lines": "%1 riviä",
   "clip.chars": "%1 merkkiä",
   "web.section": "Verkkotulokset",

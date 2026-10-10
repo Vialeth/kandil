@@ -14,6 +14,7 @@
   "clip.noMatch": "剪贴板历史中没有匹配项",
   "clip.section": "剪贴板历史",
   "clip.item": "剪贴板条目",
+  "clip.image": "图片",
   "clip.lines": "%1 行",
   "clip.chars": "%1 个字符",
   "web.section": "网页结果",

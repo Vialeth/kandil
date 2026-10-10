@@ -14,6 +14,7 @@
   "clip.noMatch": "Aucune correspondance dans l'historique du presse-papiers",
   "clip.section": "Historique du presse-papiers",
   "clip.item": "Élément du presse-papiers",
+  "clip.image": "Image",
   "clip.lines": "%1 lignes",
   "clip.chars": "%1 caractères",
   "web.section": "Résultats web",

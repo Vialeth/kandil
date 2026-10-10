@@ -21,6 +21,7 @@ import json
 import os
 import re
 import shlex
+import sqlite3
 import struct
 import subprocess
 import sys
@@ -30,7 +31,7 @@ import unicodedata
 import zlib
 
 import shiboken6
-from PySide6.QtCore import (ClassInfo, QDir, QFileInfo, QFileSystemWatcher, QLibraryInfo, QLocale, QMargins,
+from PySide6.QtCore import (ClassInfo, QDir, QMimeData, QFileInfo, QFileSystemWatcher, QLibraryInfo, QLocale, QMargins,
                             QMimeDatabase, QObject, QPluginLoader, QProcess, QRect, QSettings, QStandardPaths,
                             Qt, QTimer, QUrl, Signal, Slot)
 from PySide6.QtGui import QDesktopServices, QIcon, QImage, QImageReader, QKeySequence, QRegion
@@ -46,6 +47,9 @@ I18N_DIR = os.path.join(HERE, "i18n")
 STATE_DIR = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "kandil")
 HISTORY_FILE = os.path.join(STATE_DIR, "history.json")
 EMOJI_RECENT_FILE = os.path.join(STATE_DIR, "emoji.json")
+# Klipper (Plasma 6) geçmişi: öğeler bu veritabanında, görsellerin verisi data/<öğe>/<veri> dosyalarında
+KLIPPER_DIR = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"), "klipper")
+KLIPPER_DB = os.path.join(KLIPPER_DIR, "history3.sqlite")
 HISTORY_LIMIT = 200
 HOME = os.path.expanduser("~")
 CONFIG_DIR = os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "kandil")
@@ -660,6 +664,33 @@ def match_score(name, needle):
     return 2 if not name[pos - 1].isalnum() else 3
 
 
+def klipper_history():
+    """Klipper geçmişi en yeniden eskiye: [{"uuid", "text", "image"}]. Veritabanı yoksa ya da
+    yapısı beklenenden farklıysa None döner; o zaman D-Bus'taki metin listesine dönülür."""
+    if not os.path.exists(KLIPPER_DB):
+        return None
+    try:
+        con = sqlite3.connect(f"file:{KLIPPER_DB}?mode=ro", uri=True, timeout=1)
+        try:
+            rows = con.execute("SELECT uuid, mimetypes, text FROM main ORDER BY last_used_time DESC").fetchall()
+            aux = {(u, m): d for u, m, d in con.execute("SELECT uuid, mimetype, data_uuid FROM aux")}
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+    out = []
+    for uuid, mimes, text in rows:
+        image = ""
+        if not text:
+            mime = next((m for m in (mimes or "").split(",") if m.startswith("image/")), "")
+            data = aux.get((uuid, mime))
+            if data and os.path.exists(os.path.join(KLIPPER_DIR, "data", uuid, data)):
+                image = os.path.join(KLIPPER_DIR, "data", uuid, data)
+        if text or image:
+            out.append({"uuid": uuid, "text": text or "", "image": image})
+    return out
+
+
 def runner_list(lang):
     """Kurulu KRunner eklentileri (özel önek eklerken seçmek için)."""
     def localized(get, key):
@@ -1012,39 +1043,69 @@ class Controller(QObject):
         return file_info(url, self.locale())
 
     # ── Pano geçmişi (Klipper) ───────────────────────────────────────
+    def clip_text_entry(self, i, text, key):
+        first = next((l.strip() for l in text.splitlines() if l.strip()), text.strip())
+        lines = text.count("\n") + 1
+        subtext = self.t("clip.chars", len(text))
+        if lines > 1:
+            subtext = self.t("clip.lines", lines) + " · " + subtext
+        return {"matchId": f"clip:{i}", "clipKey": key, "display": first[:300], "subtext": subtext,
+                "decoration": "edit-paste", "category": self.t("clip.section"), "fullText": text[:4000],
+                "imageUrl": ""}
+
     @Slot(str, result="QVariantList")
     def clipboardItems(self, needle):
+        needle = needle.casefold()
+        history = klipper_history()
+        if history is not None:
+            out = []
+            for i, item in enumerate(history):
+                if item["image"]:
+                    # Görseller arama yapılmıyorken ya da "görsel" kelimesi aranınca listelenir
+                    if needle and needle not in self.t("clip.image").casefold():
+                        continue
+                    reader = QImageReader(item["image"])
+                    size = reader.size()
+                    dims = f"{size.width()} × {size.height()}" if size.isValid() else ""
+                    weight = self.locale().formattedDataSize(os.path.getsize(item["image"]))
+                    url = QUrl.fromLocalFile(item["image"]).toString()
+                    out.append({"matchId": f"clip:{i}", "clipKey": item["uuid"], "display": self.t("clip.image"),
+                                "subtext": " · ".join(x for x in (dims, weight) if x), "decoration": url,
+                                "category": self.t("clip.section"), "fullText": "", "imageUrl": url})
+                elif not needle or needle in item["text"].casefold():
+                    out.append(self.clip_text_entry(i, item["text"], item["uuid"]))
+            return out
+        # Klipper veritabanı okunamazsa D-Bus: görseller orada yalnızca "▨ G × Y" yazısıdır, atlanır
         reply = self.klipper.call("getClipboardHistoryMenu")
         items = reply.arguments()[0] if reply.arguments() else []
-        needle = needle.casefold()
         out = []
         for i, text in enumerate(items):
-            # Görsel girdileri Klipper "▨ G × Y" biçiminde verir; metin olarak geri yüklenemez
             if text.startswith("▨ "):
                 continue
             if needle and needle not in text.casefold():
                 continue
-            first = next((l.strip() for l in text.splitlines() if l.strip()), text.strip())
-            lines = text.count("\n") + 1
-            subtext = self.t("clip.chars", len(text))
-            if lines > 1:
-                subtext = self.t("clip.lines", lines) + " · " + subtext
-            out.append({
-                "matchId": f"clip:{i}",
-                "clipIndex": i,
-                "display": first[:300],
-                "subtext": subtext,
-                "decoration": "edit-paste",
-                "category": self.t("clip.section"),
-                "fullText": text[:4000],
-            })
+            out.append(self.clip_text_entry(i, text, str(i)))
         return out
 
-    @Slot(int)
-    def restoreClipboard(self, index):
-        reply = self.klipper.call("getClipboardHistoryItem", index)
-        if reply.arguments():
-            self.klipper.call("setClipboardContents", reply.arguments()[0])
+    @Slot(str)
+    def restoreClipboard(self, key):
+        """Öğeyi yeniden panoya koyar. Anahtar Klipper veritabanındaki kimlik ya da D-Bus sırasıdır."""
+        item = next((h for h in klipper_history() or [] if h["uuid"] == key), None)
+        if item is None:
+            if key.isdigit():
+                reply = self.klipper.call("getClipboardHistoryItem", int(key))
+                if reply.arguments():
+                    self.klipper.call("setClipboardContents", reply.arguments()[0])
+            return
+        if item["text"]:
+            self.klipper.call("setClipboardContents", item["text"])
+            return
+        # Görsel Klipper'ın D-Bus arayüzüyle geri konamaz; pano doğrudan ayarlanır, Klipper da onu alır
+        with open(item["image"], "rb") as f:
+            data = f.read()
+        mime = QMimeData()
+        mime.setData(QMimeDatabase().mimeTypeForData(data).name(), data)
+        QApplication.clipboard().setMimeData(mime)
 
     @Slot(str)
     def copyText(self, text):

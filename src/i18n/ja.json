@@ -14,6 +14,7 @@
   "clip.noMatch": "クリップボードの履歴に一致するものはありません",
   "clip.section": "クリップボードの履歴",
   "clip.item": "クリップボードの項目",
+  "clip.image": "画像",
   "clip.lines": "%1 行",
   "clip.chars": "%1 文字",
   "web.section": "ウェブの結果",

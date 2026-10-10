@@ -42,7 +42,7 @@ The code was written by Claude Opus 5.5.
 - Search engine keywords such as `gg ubuntu` (Google) or `yt lofi` (YouTube)
   that open the search in the browser. Engines can be added and edited in the
   settings.
-- Clipboard history search through Klipper.
+- Clipboard history from Klipper, including images with a preview.
 - An emoji picker (`e`) with names and keywords in the interface language,
   recently used emoji and a skin tone setting.
 - Running a shell command and showing its output in the panel.

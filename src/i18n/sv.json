@@ -14,6 +14,7 @@
   "clip.noMatch": "Ingen träff i klippbordshistoriken",
   "clip.section": "Klippbordshistorik",
   "clip.item": "Klippbordsobjekt",
+  "clip.image": "Bild",
   "clip.lines": "%1 rader",
   "clip.chars": "%1 tecken",
   "web.section": "Webbresultat",

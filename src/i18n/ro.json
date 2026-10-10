@@ -14,6 +14,7 @@
   "clip.noMatch": "Nicio potrivire în istoricul clipboardului",
   "clip.section": "Istoricul clipboardului",
   "clip.item": "Element din clipboard",
+  "clip.image": "Imagine",
   "clip.lines": "%1 rânduri",
   "clip.chars": "%1 caractere",
   "web.section": "Rezultate web",

@@ -14,6 +14,7 @@
   "clip.noMatch": "Nincs egyezés a vágólap előzményeiben",
   "clip.section": "Vágólap-előzmények",
   "clip.item": "Vágólapelem",
+  "clip.image": "Kép",
   "clip.lines": "%1 sor",
   "clip.chars": "%1 karakter",
   "web.section": "Webes találatok",

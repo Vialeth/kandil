@@ -730,7 +730,7 @@ Window {
         }
         if (listKind === "clip") {
             if (i >= 0 && i < clipModel.count) {
-                controller.restoreClipboard(clipModel.get(i).clipIndex)
+                controller.restoreClipboard(clipModel.get(i).clipKey)
                 close()
             }
             return
@@ -821,8 +821,13 @@ Window {
         if (listKind === "clip") {
             const e = clipModel.get(list.currentIndex)
             if (!e) return
-            previewInfo = { exists: true, kind: "text", noMeta: true, name: root.tr("clip.item"),
-                            location: e.subtext, icon: "edit-paste", text: e.fullText }
+            if (e.imageUrl) {
+                previewInfo = Object.assign(controller.fileInfo(e.imageUrl), { name: root.tr("clip.image") })
+                previewInfo.location = ""
+            } else {
+                previewInfo = { exists: true, kind: "text", noMeta: true, name: root.tr("clip.item"),
+                                location: e.subtext, icon: "edit-paste", text: e.fullText }
+            }
         } else if (listKind === "emoji") {
             const em = emojiModel.get(list.currentIndex)
             if (!em) return

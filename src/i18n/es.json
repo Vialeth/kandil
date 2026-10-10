@@ -14,6 +14,7 @@
   "clip.noMatch": "No hay coincidencias en el historial del portapapeles",
   "clip.section": "Historial del portapapeles",
   "clip.item": "Elemento del portapapeles",
+  "clip.image": "Imagen",
   "clip.lines": "%1 líneas",
   "clip.chars": "%1 caracteres",
   "web.section": "Resultados web",
