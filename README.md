@@ -34,6 +34,8 @@ The code was written by Claude Opus 5.5.
 - A preview panel for the selected result; for files it shows image thumbnails,
   the first lines of text files, folder contents, size and modification date.
 - Prefixes that limit the search to one source, for example `f` for files.
+- A folder browser (`ff`): find a folder by name or type a path, move through
+  folders with the keyboard and preview folders, images, PDF files and text.
 - Web search with the `s` prefix: results from Brave Search are listed in the
   panel and the selected one opens in the default browser. A typed address such
   as `kde.org` opens directly without a prefix.
@@ -111,6 +113,7 @@ shown as a label in the search field and can be removed with Backspace.
 | Prefix | Source | Example |
 |---|---|---|
 | `f` | Files and folders | `f invoice` |
+| `ff` | Folder browser | `ff desktop`, `ff ~/Documents/` |
 | `w` | Open windows | `w firefox` |
 | `a` | Applications | `a calc` |
 | `s` | Web search (Brave Search) | `s kde plasma` |
@@ -129,6 +132,29 @@ Enter before the results arrive still searches. Installations that used `s` for
 System Settings are moved to `ss` automatically. Prefixes do not depend on the interface language. They can be changed
 or disabled in the settings, and additional prefixes can be added for any
 installed KRunner plugin.
+
+### Folder browser
+
+The `ff` prefix opens the folder browser:
+
+- With nothing typed, it lists the home folder, the standard folders
+  (Desktop, Documents, Downloads, …) and mounted drives.
+- A name finds folders with that name in the home folder and on mounted drives;
+  case and accents are ignored, so `ff desktop` and `ff masaustu` both work.
+- A path starting with `~/` or `/` lists that folder. The text after the last
+  `/` filters its contents, as in shell completion; hidden files are shown when
+  the filter starts with a dot.
+
+The preview panel shows the contents of a selected folder, image and PDF
+thumbnails with their dimensions, and the first lines of text files.
+
+| Keys | Action |
+|---|---|
+| Enter, Tab | Enter the folder, or open the file in its default application |
+| Alt+Up | Go up one folder |
+| Ctrl+Enter | Open the folder, or show the file, in the file manager |
+| Alt+C | Copy the path |
+| Ctrl+T | Open a terminal in the folder |
 
 ### Search engines
 

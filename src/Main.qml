@@ -93,6 +93,7 @@ Window {
                                      : modeRunner === ":clipboard" ? "clip"
                                      : modeRunner === ":web" ? "web"
                                      : modeRunner === ":engine" ? "engine"
+                                     : modeRunner === ":browse" ? "browse"
                                      : modeRunner === ":command" ? "command" : "results"
 
     // Komut modu durumu
@@ -140,6 +141,33 @@ Window {
         if (listKind === "web") queueWebSearch()
         else if (webState !== "idle") resetWeb()
         loadEngine()
+        if (listKind === "browse") {
+            controller.prepareBrowse()
+            loadBrowse()
+        }
+    }
+
+    // ── Klasör gezgini ("ff") ────────────────────────────────────────
+    // Boşken yerler, "~/" ya da "/" ile başlayınca o klasörün içeriği, diğer metinlerde adı
+    // eşleşen klasörler listelenir. Klasöre Enter/Tab ile girilir, dosya varsayılan uygulamayla açılır.
+    ListModel { id: browseModel }
+    property var browseInfo: ({})
+    readonly property var browseSel: listKind === "browse" && list.currentIndex >= 0
+                                     && list.currentIndex < browseModel.count ? browseModel.get(list.currentIndex) : null
+
+    function loadBrowse() {
+        const r = controller.browseList(field.text)
+        browseInfo = r
+        browseModel.clear()
+        for (const e of r.entries)
+            browseModel.append(e)
+        list.currentIndex = 0
+        Qt.callLater(refreshPreview)
+    }
+
+    function enterFolder(e) {
+        field.text = e.tildePath === "/" ? "/" : e.tildePath + "/"
+        field.cursorPosition = field.text.length
     }
 
     // ── Arama motorları ──────────────────────────────────────────────
@@ -186,7 +214,9 @@ Window {
         const shortcuts = [
             ["↑ ↓", "help.key.navigate"], ["Ctrl ↑ ↓", "help.key.category"], ["↵", "help.key.open"],
             ["⇧ ↵", "help.key.firstAction"], ["Tab", "help.key.actions"], ["Ctrl 1–9", "help.key.quick"],
-            ["⇧ Del", "help.key.removeHistory"], ["⌫", "help.key.backspace"], ["Esc", "help.key.escape"]
+            ["⇧ Del", "help.key.removeHistory"], ["⌫", "help.key.backspace"], ["Esc", "help.key.escape"],
+            ["Tab", "help.key.enterFolder"], ["Alt ↑", "help.key.parentFolder"], ["Ctrl ↵", "help.key.fileManager"],
+            ["Alt C", "help.key.copyPath"], ["Ctrl T", "help.key.terminalHere"]
         ]
         for (const [k, key] of shortcuts)
             add({ display: tr(key), subtext: "", decoration: "input-keyboard", category: keys, keyLabel: k, action: "" })
@@ -208,7 +238,8 @@ Window {
     // Sonuç varsa kart sağa doğru genişler ve seçili sonucun önizleme paneli açılır
     property bool hasResults: false
     readonly property bool previewMode: previewWidth > 0
-        && ((listKind === "results" && hasResults) || ((listKind === "clip" || listKind === "web") && list.count > 0))
+        && ((listKind === "results" && hasResults)
+            || ((listKind === "clip" || listKind === "web" || listKind === "browse") && list.count > 0))
     property var previewInfo: ({})
     onPreviewModeChanged: refreshPreview()
 
@@ -369,6 +400,9 @@ Window {
             root.cmdTimedOut = timedOut
             root.cmdElapsed = elapsed
             root.cmdState = "done"
+        }
+        function onBrowseIndexReady() {
+            if (root.listKind === "browse" && root.browseInfo.kind === "search") root.loadBrowse()
         }
         function onFaviconReady(host) {
             root.faviconTick++
@@ -544,7 +578,7 @@ Window {
     function localModel() {
         return listKind === "history" ? historyModel : listKind === "clip" ? clipModel
              : listKind === "help" ? helpModel : listKind === "web" ? webModel
-             : listKind === "engine" ? engineModel : null
+             : listKind === "engine" ? engineModel : listKind === "browse" ? browseModel : null
     }
 
     function idAt(i) {
@@ -578,6 +612,11 @@ Window {
                 controller.restoreClipboard(clipModel.get(i).clipIndex)
                 close()
             }
+            return
+        }
+        if (listKind === "browse") {
+            const e = i >= 0 && i < browseModel.count ? browseModel.get(i) : null
+            if (e) e.isDir ? enterFolder(e) : openExternal(e.url)
             return
         }
         if (listKind === "web" || listKind === "engine") {
@@ -651,6 +690,10 @@ Window {
             if (!e) return
             previewInfo = { exists: true, kind: "text", noMeta: true, name: root.tr("clip.item"),
                             location: e.subtext, icon: "edit-paste", text: e.fullText }
+        } else if (listKind === "browse") {
+            const b = browseModel.get(list.currentIndex)
+            if (!b) return
+            previewInfo = controller.fileInfo(b.url)
         } else if (listKind === "web") {
             const w = webModel.get(list.currentIndex)
             if (!w) return
@@ -804,6 +847,7 @@ Window {
                         if (root.listKind === "help") root.loadHelp()
                         if (root.listKind === "web") root.queueWebSearch()
                         if (root.listKind === "engine") root.loadEngine()
+                        if (root.listKind === "browse") root.loadBrowse()
                     }
 
                     Keys.onReleased: event => {
@@ -841,6 +885,41 @@ Window {
                             }
                             if ((event.modifiers & Qt.AltModifier) && event.key === Qt.Key_C) {
                                 if (root.cmdOutput) controller.copyText(root.cmdOutput)
+                                event.accepted = true
+                                return
+                            }
+                        }
+                        // Klasör gezgini: Tab klasöre girer, Alt+↑ üst klasöre çıkar, Ctrl+↵ dosya
+                        // yöneticisinde gösterir, Alt+C yolu kopyalar, Ctrl+T orada terminal açar
+                        if (root.listKind === "browse") {
+                            const alt = event.modifiers & Qt.AltModifier
+                            const sel = root.browseSel
+                            let handled = true
+                            if (event.key === Qt.Key_Tab && !ctrl && !alt) {
+                                if (sel && sel.isDir) root.enterFolder(sel)
+                            } else if (alt && event.key === Qt.Key_Up) {
+                                field.text = controller.browseParent(field.text)
+                                field.cursorPosition = field.text.length
+                            } else if (ctrl && (event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                                if (sel) {
+                                    if (sel.isDir) {
+                                        root.openExternal(sel.url)
+                                    } else {
+                                        controller.showInFileManager(sel.url)
+                                        root.close()
+                                    }
+                                }
+                            } else if (alt && event.key === Qt.Key_C) {
+                                if (sel) controller.copyText(sel.path)
+                            } else if (ctrl && event.key === Qt.Key_T) {
+                                if (sel) {
+                                    controller.openTerminalAt(sel.isDir ? sel.path : sel.path.replace(/\/[^\/]*$/, "") || "/")
+                                    root.close()
+                                }
+                            } else {
+                                handled = false
+                            }
+                            if (handled) {
                                 event.accepted = true
                                 return
                             }
@@ -949,6 +1028,7 @@ Window {
                          : root.listKind === "help" ? helpModel
                          : root.listKind === "web" ? webModel
                          : root.listKind === "engine" ? engineModel
+                         : root.listKind === "browse" ? browseModel
                          : root.listKind === "command" ? null : results
                     keyNavigationWraps: true
                     boundsBehavior: Flickable.StopAtBounds
@@ -1298,6 +1378,8 @@ Window {
 
                                 InfoKey { text: root.tr("preview.type") }
                                 InfoValue { text: preview.info.mime ?? "" }
+                                InfoKey { text: root.tr("preview.dimensions"); visible: !!preview.info.dimensions }
+                                InfoValue { text: preview.info.dimensions ?? ""; visible: !!preview.info.dimensions }
                                 InfoKey { text: root.tr("preview.size"); visible: !preview.info.isDir }
                                 InfoValue { text: preview.info.size ?? ""; visible: !preview.info.isDir }
                                 InfoKey { text: root.tr("preview.contents"); visible: preview.info.isDir === true }
@@ -1475,11 +1557,14 @@ Window {
                 Layout.preferredHeight: 56
                 visible: list.count === 0 && ((root.listKind === "results" && !results.querying)
                                               || root.listKind === "clip" || root.listKind === "help"
-                                              || root.listKind === "web")
+                                              || root.listKind === "web" || root.listKind === "browse")
                 horizontalAlignment: Text.AlignHCenter
                 verticalAlignment: Text.AlignVCenter
                 text: root.listKind === "clip" ? (field.text ? root.tr("clip.noMatch") : root.tr("clip.empty"))
                     : root.listKind === "web" ? root.tr("web.empty")
+                    : root.listKind === "browse" ? (root.browseInfo.error ? root.tr("browse." + root.browseInfo.error)
+                                                    : root.browseInfo.indexing ? root.tr("browse.indexing")
+                                                    : root.tr("results.none"))
                     : root.tr("results.none")
                 color: root.dimColor
                 font.pixelSize: 13
@@ -1518,6 +1603,12 @@ Window {
                         if (root.listKind === "history") return root.tr("history.title")
                         if (root.listKind === "help") return root.tr("mode.help")
                         if (root.listKind === "engine") return root.modeLabel(root.modeInfo)
+                        if (root.listKind === "browse") {
+                            const b = root.browseInfo
+                            if (b.kind === "dir") return b.dir + "  ·  " + root.tr("preview.items", b.total)
+                            if (b.kind === "search") return b.indexing ? root.tr("browse.indexing") : root.tr("browse.found", b.total)
+                            return root.tr("browse.places")
+                        }
                         if (root.listKind === "clip") return root.tr("clip.count", list.count)
                         if (root.listKind === "web") {
                             if (root.webState === "searching") return root.tr("web.searching")
@@ -1531,11 +1622,16 @@ Window {
                     elide: Text.ElideRight
                 }
                 readonly property bool cmd: root.listKind === "command"
-                Hint { keys: "↑↓"; label: root.tr("hint.navigate"); visible: !footer.cmd }
-                Hint { keys: "↵"; label: footer.cmd ? root.tr("hint.run") : root.listKind === "clip" ? root.tr("hint.toClipboard") : root.tr("hint.open") }
+                readonly property bool browse: root.listKind === "browse"
+                Hint { keys: "↑↓"; label: root.tr("hint.navigate"); visible: !footer.cmd && !footer.browse }
+                Hint { keys: "↵"; label: footer.cmd ? root.tr("hint.run") : root.listKind === "clip" ? root.tr("hint.toClipboard")
+                                       : root.browseSel?.isDir ? root.tr("hint.enterFolder") : root.tr("hint.open") }
+                Hint { keys: "Alt ↑"; label: root.tr("hint.parentFolder"); visible: footer.browse && root.browseInfo.kind === "dir" }
+                Hint { keys: "Ctrl ↵"; label: root.tr("hint.fileManager"); visible: footer.browse && root.browseSel !== null }
+                Hint { keys: "Alt C"; label: root.tr("hint.copyPath"); visible: footer.browse && root.browseSel !== null }
                 Hint { keys: "Ctrl ↵"; label: root.tr("hint.terminal"); visible: footer.cmd }
                 Hint { keys: "Alt C"; label: root.tr("hint.copyOutput"); visible: footer.cmd && root.cmdState === "done" }
-                Hint { keys: "Ctrl 1–9"; label: root.tr("hint.quickSelect"); visible: !footer.cmd }
+                Hint { keys: "Ctrl 1–9"; label: root.tr("hint.quickSelect"); visible: !footer.cmd && !footer.browse }
                 Hint { keys: "Tab"; label: root.tr("hint.actions"); visible: root.currentActions().length > 0 }
                 Hint { keys: "⇧ Del"; label: root.tr("hint.removeHistory"); visible: root.historyMode }
                 Hint { keys: root.config.helpKey ?? "?"; label: root.tr("hint.help"); visible: root.historyMode }

@@ -22,13 +22,15 @@ import re
 import shlex
 import subprocess
 import sys
+import threading
 import time
+import unicodedata
 
 import shiboken6
 from PySide6.QtCore import (ClassInfo, QDir, QFileInfo, QFileSystemWatcher, QLibraryInfo, QLocale, QMargins,
                             QMimeDatabase, QObject, QPluginLoader, QProcess, QRect, QSettings, QStandardPaths,
                             Qt, QTimer, QUrl, Signal, Slot)
-from PySide6.QtGui import QDesktopServices, QIcon, QImage, QKeySequence, QRegion
+from PySide6.QtGui import QDesktopServices, QIcon, QImage, QImageReader, QKeySequence, QRegion
 from PySide6.QtDBus import QDBusConnection, QDBusInterface
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtQml import QQmlApplicationEngine, QQmlComponent, QQmlEngine
@@ -53,6 +55,7 @@ RTL_LANGUAGES = {"ar", "fa", "he"}
 # Yerleşik modlar. Önek harfleri dilden bağımsızdır; adları çeviri dosyasından ("mode.<id>") gelir.
 BUILTIN_MODES = [
     {"id": "files", "key": "f", "runner": "baloosearch", "icon": "folder-documents"},
+    {"id": "browse", "key": "ff", "runner": ":browse", "icon": "folder-open"},
     {"id": "windows", "key": "w", "runner": "windows", "icon": "window"},
     {"id": "apps", "key": "a", "runner": "krunner_services", "icon": "applications-all"},
     {"id": "settings", "key": "ss", "runner": "krunner_systemsettings", "icon": "preferences-system"},
@@ -85,6 +88,13 @@ DEFAULT_SEARCH_ENGINES = [
     {"id": "github", "key": "gh", "name": "GitHub", "url": "https://github.com/search?q=%s"},
     {"id": "duckduckgo", "key": "ddg", "name": "DuckDuckGo", "url": "https://duckduckgo.com/?q=%s"},
 ]
+
+# Klasör gezgini ("ff"). Ad aramaları için ev dizini ve bağlı diskler bu derinliğe kadar taranır.
+BROWSE_SKIP = {"node_modules", "__pycache__", "venv", ".venv", "site-packages", "dist-packages"}
+BROWSE_DEPTH = 6
+BROWSE_LIMIT = 300
+BROWSE_SEARCH_LIMIT = 40
+BROWSE_INDEX_TTL = 120          # saniye; daha eski dizin mod açılınca yenilenir
 
 # Ayar dosyasında olmayan anahtarlar bu değerlerle tamamlanır.
 DEFAULT_CONFIG = {
@@ -414,8 +424,12 @@ def file_info(url, locale):
                            for n in names[:12]]
         return info
     info["size"] = locale.formattedDataSize(fi.size())
-    if mime.name().startswith("image/"):
+    # PDF'nin ilk sayfası da Qt'nin görüntü eklentisiyle görüntü olarak okunur
+    if mime.name().startswith("image/") or mime.inherits("application/pdf"):
         info["kind"] = "image"
+        size = QImageReader(path).size()
+        if size.isValid():
+            info["dimensions"] = f"{size.width()} × {size.height()}"
     elif mime.inherits("text/plain") and fi.size() < 5 * 1024 * 1024:
         try:
             with open(path, "rb") as f:
@@ -427,6 +441,65 @@ def file_info(url, locale):
         except OSError:
             pass
     return info
+
+
+# ── Klasör gezgini ───────────────────────────────────────────────────
+def fold(s):
+    """Büyük/küçük harf ve aksan duyarsız karşılaştırma: "masaustu" "Masaüstü"yü bulur."""
+    s = unicodedata.normalize("NFKD", s.casefold().replace("ı", "i"))
+    return "".join(c for c in s if not unicodedata.combining(c))
+
+
+def place_icons():
+    icons = {HOME: "user-home"}
+    for loc, icon in ((QStandardPaths.DesktopLocation, "user-desktop"),
+                      (QStandardPaths.DocumentsLocation, "folder-documents"),
+                      (QStandardPaths.DownloadLocation, "folder-download"),
+                      (QStandardPaths.MusicLocation, "folder-music"),
+                      (QStandardPaths.PicturesLocation, "folder-pictures"),
+                      (QStandardPaths.MoviesLocation, "folder-videos")):
+        path = QStandardPaths.writableLocation(loc)
+        if path and path != HOME and os.path.isdir(path):
+            icons[path] = icon
+    return icons
+
+
+def mount_dirs():
+    user = os.environ.get("USER", "")
+    paths = glob.glob("/mnt/*") + glob.glob("/media/*") + glob.glob(f"/run/media/{user}/*")
+    return sorted(p for p in paths if os.path.isdir(p) and not p.startswith(HOME + "/"))
+
+
+def build_folder_index():
+    """Klasör adlarının listesi: (katlanmış ad, yol, derinlik). Gizli ve büyük geliştirme klasörleri atlanır."""
+    index = []
+    stack = [(root, 0) for root in [HOME] + mount_dirs()]
+    while stack:
+        path, depth = stack.pop()
+        try:
+            with os.scandir(path) as it:
+                for e in it:
+                    if e.name.startswith(".") or e.name in BROWSE_SKIP:
+                        continue
+                    if e.is_dir(follow_symlinks=False):
+                        index.append((fold(e.name), e.path, depth))
+                        if depth < BROWSE_DEPTH:
+                            stack.append((e.path, depth + 1))
+        except OSError:
+            pass
+    return index
+
+
+def match_score(name, needle):
+    """Küçük puan daha iyi; eşleşme yoksa None."""
+    if name == needle:
+        return 0
+    if name.startswith(needle):
+        return 1
+    pos = name.find(needle)
+    if pos < 0:
+        return None
+    return 2 if not name[pos - 1].isalnum() else 3
 
 
 def runner_list(lang):
@@ -555,6 +628,7 @@ class Controller(QObject):
     commandFinished = Signal(str, int, bool, float)     # çıktı, çıkış kodu, zaman aşımı, süre (sn)
     webResults = Signal(str, "QVariantList", str)        # sorgu, sonuçlar, hata
     faviconReady = Signal(str)                          # site adı (host)
+    browseIndexReady = Signal()
 
     def __init__(self):
         super().__init__()
@@ -583,6 +657,10 @@ class Controller(QObject):
         self.web_reply = None
         self.web_cache = {}
         self.favicon_pending = set()
+        self.folder_index = None
+        self.folder_index_time = 0
+        self.folder_index_building = False
+        self.browseIndexReady.connect(lambda: setattr(self, "folder_index_building", False))
 
     def t(self, key, *args):
         s = self.strings.get(key, key)
@@ -883,6 +961,123 @@ class Controller(QObject):
 
             reply.finished.connect(on_finished)
         return ""
+
+    # ── Klasör gezgini ───────────────────────────────────────────────
+    @Slot()
+    def prepareBrowse(self):
+        if self.folder_index_building or time.monotonic() - self.folder_index_time < BROWSE_INDEX_TTL:
+            return
+        self.folder_index_building = True
+
+        def work():
+            index = build_folder_index()
+            self.folder_index, self.folder_index_time = index, time.monotonic()
+            self.browseIndexReady.emit()      # ana iş parçacığına sıraya alınarak iletilir
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def browse_entry(self, path, is_dir, category, subtext=None, icons=None):
+        name = os.path.basename(path.rstrip("/")) or path
+        if is_dir:
+            icon = (icons or {}).get(path, "folder")
+            sub = subtext if subtext is not None else self.t("browse.folder")
+        else:
+            db = QMimeDatabase()
+            mime = db.mimeTypeForFile(path, QMimeDatabase.MatchExtension)
+            if mime.isDefault():          # uzantı yetmiyorsa içerikten tanınır
+                mime = db.mimeTypeForFile(path)
+            icon = mime.iconName() or mime.genericIconName() or "unknown"
+            try:
+                size = self.locale().formattedDataSize(os.path.getsize(path))
+            except OSError:
+                size = ""
+            sub = subtext if subtext is not None else " · ".join(x for x in (mime.comment(), size) if x)
+        return {"matchId": QUrl.fromLocalFile(path).toString(), "url": QUrl.fromLocalFile(path).toString(),
+                "path": path, "tildePath": tilde(path), "display": name, "subtext": sub, "decoration": icon, "isDir": is_dir,
+                "category": category, "multiLine": False, "keyLabel": ""}
+
+    @Slot(str, result="QVariantMap")
+    def browseList(self, text):
+        """Boş metin: yerler; "/" ya da "~" ile başlayan: o klasörün içeriği (son parça süzgeç);
+        diğerleri: adı eşleşen klasörler."""
+        icons = place_icons()
+        if not text.strip():
+            entries = [self.browse_entry(p, True, self.t("browse.places"), tilde(p), icons) for p in icons]
+            entries[0]["display"] = self.t("browse.home")
+            entries += [self.browse_entry(p, True, self.t("browse.drives"), p, {p: "drive-harddisk"})
+                        for p in mount_dirs()]
+            entries.append(dict(self.browse_entry("/", True, self.t("browse.drives"), "/", {"/": "drive-harddisk-root"}),
+                                display=self.t("browse.root")))
+            return {"kind": "places", "dir": "", "entries": entries, "total": len(entries)}
+
+        if text.startswith(("/", "~")):
+            expanded = os.path.expanduser(text)
+            folder, needle = os.path.split(expanded)
+            folder = folder or "/"
+            if not os.path.isdir(folder):
+                return {"kind": "dir", "dir": tilde(folder), "entries": [], "total": 0, "error": "notFound"}
+            needle = fold(needle)
+            show_hidden = needle.startswith(".")
+            found = []
+            try:
+                with os.scandir(folder) as it:
+                    for e in it:
+                        if e.name.startswith(".") and not show_hidden:
+                            continue
+                        score = match_score(fold(e.name), needle) if needle else 0
+                        if score is None:
+                            continue
+                        try:
+                            is_dir = e.is_dir()
+                        except OSError:
+                            is_dir = False
+                        found.append((not is_dir, min(score, 1), fold(e.name), e.path, is_dir))
+            except OSError:
+                return {"kind": "dir", "dir": tilde(folder), "entries": [], "total": 0, "error": "unreadable"}
+            found.sort()
+            folders, files = self.t("browse.folders"), self.t("browse.files")
+            entries = [self.browse_entry(f[3], f[4], folders if f[4] else files, icons=icons)
+                       for f in found[:BROWSE_LIMIT]]
+            return {"kind": "dir", "dir": tilde(folder), "entries": entries, "total": len(found),
+                    "error": "" if found or needle else "empty"}
+
+        needle = fold(text.strip())
+        self.prepareBrowse()
+        ranked = []
+        for path, icon in icons.items():
+            score = match_score(fold(os.path.basename(path)), needle)
+            if score is not None:
+                ranked.append((score - 1, 0, path))
+        seen = {r[2] for r in ranked}
+        for name, path, depth in self.folder_index or []:
+            score = match_score(name, needle)
+            if score is not None and path not in seen:
+                ranked.append((score, depth, path))
+        ranked.sort(key=lambda r: (r[0], r[1], len(r[2])))
+        category = self.t("browse.folders")
+        entries = [self.browse_entry(r[2], True, category, tilde(os.path.dirname(r[2])), icons)
+                   for r in ranked[:BROWSE_SEARCH_LIMIT]]
+        return {"kind": "search", "dir": "", "entries": entries, "total": len(ranked),
+                "indexing": self.folder_index is None}
+
+    @Slot(str, result=str)
+    def browseParent(self, text):
+        """Alt+↑: yazılı yoldaki klasörün bir üstü."""
+        folder = os.path.dirname(os.path.expanduser(text)) if text.startswith(("/", "~")) else HOME
+        parent = os.path.dirname(folder.rstrip("/")) or "/"
+        return "/" if parent == "/" else tilde(parent) + "/"
+
+    @Slot(str)
+    def showInFileManager(self, url):
+        # Dosya yöneticisi (Dolphin) dosyayı seçili olarak bulunduğu klasörde açar
+        QProcess.startDetached("busctl", ["--user", "call", "org.freedesktop.FileManager1",
+                                          "/org/freedesktop/FileManager1", "org.freedesktop.FileManager1",
+                                          "ShowItems", "ass", "1", url, ""])
+
+    @Slot(str)
+    def openTerminalAt(self, path):
+        term = shlex.split(self.config["terminalCommand"])[:1] or ["konsole"]
+        QProcess.startDetached(term[0], [], path)
 
     @Slot(str)
     def openUrl(self, url):
