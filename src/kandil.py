@@ -129,8 +129,14 @@ AI_PRESETS = {
     "anthropic": {"name": "Claude", "type": "anthropic", "url": "https://api.anthropic.com/v1",
                   "model": "claude-opus-5-5", "effort": "low"},
 }
-AI_DEFAULT_SYSTEM_PROMPT = ("You are a helpful assistant inside a desktop application launcher. Answer concisely "
-                            "and use Markdown when it helps. Reply in the language of the user's message.")
+# Model sohbet dışında hiçbir şey yapamaz; bunu açıkça söylemezsek "Brave'i açıyorum" gibi eylemler uyduruyor
+AI_DEFAULT_SYSTEM_PROMPT = (
+    "You are a chat assistant shown in Kandil, an application launcher for KDE Plasma. You have no tools: you cannot "
+    "open applications or websites, run commands, read or change files, or see the screen, and nothing you write is "
+    "executed. Never claim that you are doing, have done or will do such an action, such as \"Opening Brave\". If the "
+    "user asks for one, say in one sentence that you cannot do it from the chat, then tell them how to do it, for "
+    "example: press Esc to leave the chat, type the application's name and press Enter. Answer concisely and use "
+    "Markdown when it helps. Reply in the language of the user's message.")
 ANTHROPIC_VERSION = "2023-06-01"
 # Reddedilen isteklerin sunucu tarafında başka bir modelle sürdürülmesi (refusal fallback)
 ANTHROPIC_FALLBACK_BETA = "server-side-fallback-2026-07-01"
@@ -468,9 +474,13 @@ def load_strings(lang):
     for code in ("en", lang):
         try:
             with open(os.path.join(I18N_DIR, code + ".json"), encoding="utf-8") as f:
-                strings.update(json.load(f))
+                loaded = json.load(f)
         except (OSError, ValueError):
-            pass
+            continue
+        if code != lang:
+            # İngilizce tekil biçimler ("….one") başka dillere yedek olarak geçmez
+            loaded = {k: v for k, v in loaded.items() if not k.endswith(".one")}
+        strings.update(loaded)
     return strings
 
 
@@ -779,7 +789,7 @@ def write_keys(action, seqs):
 
 
 def get_shortcut():
-    keys = read_keys(DESKTOP_ID)
+    keys = current_keys(KANDIL_ACTION)
     return keys[0] if keys else ""
 
 
@@ -861,7 +871,7 @@ class Controller(QObject):
         self.browseIndexReady.connect(lambda: setattr(self, "folder_index_building", False))
 
     def t(self, key, *args):
-        s = self.strings.get(key, key)
+        s = (args and args[0] == 1 and self.strings.get(key + ".one")) or self.strings.get(key, key)
         for i, a in enumerate(args, 1):
             s = s.replace(f"%{i}", str(a))
         return s

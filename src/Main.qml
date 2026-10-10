@@ -18,7 +18,8 @@ Window {
 
     // Çeviri: tr("results.count", 5) → "5 sonuç"
     function tr(key, ...args) {
-        let s = strings[key] ?? key
+        // Sayı 1 ise ve dil tekil biçim tanımlıyorsa "<anahtar>.one" kullanılır
+        let s = (args[0] === 1 && strings[key + ".one"]) || (strings[key] ?? key)
         for (let i = 0; i < args.length; i++)
             s = s.split("%" + (i + 1)).join(String(args[i]))
         return s
@@ -849,7 +850,7 @@ Window {
         } else if (listKind === "emoji") {
             const em = emojiModel.get(list.currentIndex)
             if (!em) return
-            previewInfo = { exists: true, kind: "text", noMeta: true, name: em.display, location: em.codepoints,
+            previewInfo = { exists: true, kind: "text", prose: true, noMeta: true, name: em.display, location: em.codepoints,
                             glyph: em.glyph, text: [em.categoryName, em.keywords, em.variants].filter(x => x).join("\n\n") }
         } else if (listKind === "browse") {
             const b = browseModel.get(list.currentIndex)
@@ -858,7 +859,7 @@ Window {
         } else if (listKind === "web") {
             const w = webModel.get(list.currentIndex)
             if (!w) return
-            previewInfo = { exists: true, kind: "text", noMeta: true, name: w.display,
+            previewInfo = { exists: true, kind: "text", prose: true, noMeta: true, name: w.display,
                             location: w.url, icon: w.decoration, text: w.description }
         } else if (item.matchId.startsWith("file://")) {
             previewInfo = controller.fileInfo(item.matchId)
@@ -1616,10 +1617,12 @@ Window {
                                     anchors.margins: 10
                                     text: preview.info.text ?? ""
                                     color: Qt.alpha(root.textColor, 0.75)
-                                    font.family: "monospace"
-                                    font.pixelSize: 11
+                                    // Dosya içeriği eş aralıklı; web açıklaması ve emoji bilgisi düz metin
+                                    font.family: preview.info.prose ? Kirigami.Theme.defaultFont.family : "monospace"
+                                    font.pixelSize: preview.info.prose ? 12 : 11
+                                    lineHeight: preview.info.prose ? 1.15 : 1
                                     textFormat: Text.PlainText
-                                    wrapMode: Text.NoWrap
+                                    wrapMode: preview.info.prose ? Text.WordWrap : Text.NoWrap
                                     elide: Text.ElideRight
                                 }
                                 Rectangle {

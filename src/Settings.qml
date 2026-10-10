@@ -30,7 +30,8 @@ QQC2.ApplicationWindow {
     visible: false
 
     function tr(key, ...args) {
-        let s = strings[key] ?? key
+        // Sayı 1 ise ve dil tekil biçim tanımlıyorsa "<anahtar>.one" kullanılır
+        let s = (args[0] === 1 && strings[key + ".one"]) || (strings[key] ?? key)
         for (let i = 0; i < args.length; i++)
             s = s.split("%" + (i + 1)).join(String(args[i]))
         return s
