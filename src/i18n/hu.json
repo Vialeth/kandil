@@ -39,6 +39,7 @@
   "emoji.recent": "Legutóbb használt",
   "emoji.count": "%1 emodzsi",
   "ai.noModel": "A kiszolgáló nem jelzett modellt",
+  "ai.notRunning": "A(z) %1 nem fut itt: %2. Ha még nincs telepítve, az alábbi útmutató leírja a beállítását.",
   "ai.refused": "A modell megtagadta a kérés megválaszolását.",
   "ai.truncated": "A válasz megszakadt, mert elérte a hosszkorlátot.",
   "ai.thinking": "Gondolkodik…",

@@ -39,6 +39,7 @@
   "emoji.recent": "Baru digunakan",
   "emoji.count": "%1 emoji",
   "ai.noModel": "Server tidak melaporkan model apa pun",
+  "ai.notRunning": "%1 tidak berjalan di %2. Jika belum terpasang, panduan di bawah menjelaskan cara menyiapkannya.",
   "ai.refused": "Model menolak menjawab permintaan ini.",
   "ai.truncated": "Jawaban terpotong karena mencapai batas panjang.",
   "ai.thinking": "Berpikir…",

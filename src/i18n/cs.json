@@ -39,6 +39,7 @@
   "emoji.recent": "Nedávno použité",
   "emoji.count": "Emoji: %1",
   "ai.noModel": "Server nenabídl žádné modely",
+  "ai.notRunning": "%1 na adrese %2 neběží. Pokud ještě není nainstalován, návod níže vysvětluje, jak jej nastavit.",
   "ai.refused": "Model odmítl na tento požadavek odpovědět.",
   "ai.truncated": "Odpověď byla zkrácena, protože dosáhla limitu délky.",
   "ai.thinking": "Přemýšlí…",

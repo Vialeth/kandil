@@ -39,6 +39,7 @@
   "emoji.recent": "Recent gebruikt",
   "emoji.count": "%1 emoji",
   "ai.noModel": "De server meldde geen modellen",
+  "ai.notRunning": "%1 draait niet op %2. Als het nog niet is geïnstalleerd, legt de handleiding hieronder uit hoe je het instelt.",
   "ai.refused": "Het model weigerde dit verzoek te beantwoorden.",
   "ai.truncated": "Het antwoord is afgekapt omdat de lengtelimiet is bereikt.",
   "ai.thinking": "Denkt na…",

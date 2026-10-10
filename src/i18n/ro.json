@@ -39,6 +39,7 @@
   "emoji.recent": "Folosite recent",
   "emoji.count": "Emoji: %1",
   "ai.noModel": "Serverul nu a raportat niciun model",
+  "ai.notRunning": "%1 nu rulează la %2. Dacă nu este încă instalat, ghidul de mai jos explică cum se configurează.",
   "ai.refused": "Modelul a refuzat să răspundă la această cerere.",
   "ai.truncated": "Răspunsul a fost tăiat pentru că a atins limita de lungime.",
   "ai.thinking": "Se gândește…",

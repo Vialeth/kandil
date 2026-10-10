@@ -10,6 +10,7 @@
 #   --no-deps          Do not install missing packages
 #   --shortcut KEYS    Global shortcut (default: Alt+Space, "none" to skip)
 #   --keep-krunner     Do not take the shortcut away from KRunner
+#   --deps-only        Only check and install the dependencies
 set -euo pipefail
 
 REPO="Vialeth/kandil"
@@ -29,6 +30,7 @@ ASSUME_YES=0
 INSTALL_DEPS=1
 SHORTCUT="Alt+Space"
 TAKE_FROM_KRUNNER=1
+DEPS_ONLY=0
 
 # ── Messages ─────────────────────────────────────────────────────────
 case "${LC_ALL:-${LC_MESSAGES:-${LANG:-}}}" in tr*) TR=1 ;; *) TR=0 ;; esac
@@ -63,13 +65,14 @@ ask() {
 
 usage() {
     cat <<'EOF'
-Usage: install.sh [--yes] [--no-deps] [--shortcut KEYS] [--keep-krunner]
+Usage: install.sh [--yes] [--no-deps] [--shortcut KEYS] [--keep-krunner] [--deps-only]
 
   -y, --yes          Do not ask questions, accept the defaults
       --no-deps      Do not install missing packages
       --shortcut KEYS
                      Global shortcut (default: Alt+Space, "none" to skip)
       --keep-krunner Do not take the shortcut away from KRunner
+      --deps-only    Only check and install the dependencies
   -h, --help         Show this help
 
 Running the installer again updates an existing installation.
@@ -83,6 +86,7 @@ while [ $# -gt 0 ]; do
         --no-deps) INSTALL_DEPS=0 ;;
         --shortcut) SHORTCUT="${2:-}"; shift ;;
         --keep-krunner) TAKE_FROM_KRUNNER=0 ;;
+        --deps-only) DEPS_ONLY=1 ;;
         -h|--help) usage ;;
         *) die "$(t "Unknown option: $1" "Bilinmeyen seçenek: $1")" ;;
     esac
@@ -96,6 +100,7 @@ step "$(t "Checking the system" "Sistem denetleniyor")"
 [ "$(id -u)" -ne 0 ] || die "$(t "Do not run as root; Kandil is installed for your user." \
                                 "root olarak çalıştırmayın; Kandil kullanıcınız için kurulur.")"
 command -v python3 >/dev/null || die "$(t "python3 is required." "python3 gerekli.")"
+if [ "$DEPS_ONLY" = 0 ]; then
 command -v systemctl >/dev/null && systemctl --user show-environment >/dev/null 2>&1 \
     || die "$(t "A systemd user session is required." "systemd kullanıcı oturumu gerekli.")"
 command -v busctl >/dev/null || die "$(t "busctl (systemd) is required." "busctl (systemd) gerekli.")"
@@ -113,6 +118,7 @@ if [ "${XDG_SESSION_TYPE:-}" = wayland ]; then
 else
     warn "$(t "This is not a Wayland session. Kandil needs Wayland to appear in the right place." \
               "Bu bir Wayland oturumu değil. Kandil'in doğru yerde açılması için Wayland gerekir.")"
+fi
 fi
 
 # ── 2. Source files ──────────────────────────────────────────────────
@@ -136,31 +142,49 @@ else
 fi
 
 # ── 3. Dependencies ──────────────────────────────────────────────────
-# Prints the missing components as keywords (pyside6, milou, layershell, …).
+# Prints the missing components as keywords. The PySide6 and QML modules are read from the
+# source files, so the check always matches what Kandil actually imports:
+#   pyside6            PySide6 itself          pyside6:QtNetwork   one PySide6 module
+#   qml:QtQuick.Effects one QML module         kwindowsystem       libKF6WindowSystem
+#   qt>=6.9            Qt is too old
 check_deps() {
-    QT_QPA_PLATFORM=offscreen python3 -I - 2>/dev/null <<'PY' || echo "pyside6"
-import ctypes, sys
+    QT_QPA_PLATFORM=offscreen python3 -I - "$SRC" 2>/dev/null <<'PY' || echo "pyside6"
+import ctypes, os, re, sys
+src = sys.argv[1]
+with open(os.path.join(src, "kandil.py"), encoding="utf-8") as f:
+    py_modules = sorted(set(re.findall(r"^from PySide6\.(\w+) import", f.read(), re.M)))
+qml_modules = set()
+for name in ("Main.qml", "Settings.qml"):
+    with open(os.path.join(src, name), encoding="utf-8") as f:
+        qml_modules |= set(re.findall(r"^import\s+([A-Za-z][\w.]*)", f.read(), re.M))
+# The KDE Qt Quick Controls style is loaded at run time, not imported
+qml_modules.add("org.kde.desktop")
 try:
+    import shiboken6  # noqa: F401
     from PySide6.QtCore import QUrl, qVersion
-    from PySide6.QtGui import QGuiApplication
-    from PySide6.QtQml import QQmlComponent, QQmlEngine
-    import PySide6.QtDBus, PySide6.QtQuick, PySide6.QtWidgets  # noqa: F401
 except ImportError:
     print("pyside6"); sys.exit(0)
 missing = []
+for module in py_modules:
+    try:
+        __import__("PySide6." + module)
+    except ImportError:
+        missing.append("pyside6:" + module)
+if missing:
+    print(" ".join(missing)); sys.exit(0)
 try:
     ctypes.CDLL("libKF6WindowSystem.so.6")
 except OSError:
     missing.append("kwindowsystem")
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtQml import QQmlComponent, QQmlEngine
 app = QGuiApplication(sys.argv[:1])
 engine = QQmlEngine()
-for module, key in [("org.kde.milou", "milou"), ("org.kde.layershell", "layershell"),
-                    ("org.kde.kirigami", "kirigami"), ("org.kde.kquickcontrols", "kquickcontrols"),
-                    ("org.kde.desktop", "qqc2-desktop-style")]:
+for module in sorted(qml_modules):
     c = QQmlComponent(engine)
     c.setData(f"import QtQuick\nimport {module}\nItem {{}}".encode(), QUrl())
     if c.isError():
-        missing.append(key)
+        missing.append("qml:" + module)
 major, minor = (int(x) for x in qVersion().split(".")[:2])
 if (major, minor) < (6, 9):
     missing.append("qt>=6.9")
@@ -169,37 +193,39 @@ PY
 }
 
 # Candidate package names per package manager; the first one that exists is installed.
+# Debian and Ubuntu split PySide6 and every QML module into own packages, named after the module.
 candidates() {
-    local pm="$1" key="$2"
+    local pm="$1" key="$2" lower="${2,,}"
     case "$pm:$key" in
-        dnf:pyside6)              echo "python3-pyside6" ;;
+        dnf:pyside6|dnf:pyside6:*)        echo "python3-pyside6" ;;
+        pacman:pyside6|pacman:pyside6:*)  echo "pyside6" ;;
+        # openSUSE names Python packages after the interpreter version (python313-pyside6)
+        zypper:pyside6|zypper:pyside6:*)  echo "$(python3 -c 'import sys; print("python%d%d" % sys.version_info[:2])')-pyside6 python3-pyside6" ;;
+        apt:pyside6)              echo "python3-pyside6.qtcore" ;;
+        apt:pyside6:*)            echo "python3-pyside6.${lower#pyside6:}" ;;
         dnf:kwindowsystem)        echo "kf6-kwindowsystem" ;;
-        dnf:milou)                echo "plasma-milou" ;;
-        dnf:layershell)           echo "layer-shell-qt" ;;
-        dnf:kirigami)             echo "kf6-kirigami" ;;
-        dnf:kquickcontrols)       echo "kf6-kdeclarative" ;;
-        dnf:qqc2-desktop-style)   echo "kf6-qqc2-desktop-style" ;;
-        pacman:pyside6)           echo "pyside6" ;;
         pacman:kwindowsystem)     echo "kwindowsystem" ;;
-        pacman:milou)             echo "milou" ;;
-        pacman:layershell)        echo "layer-shell-qt" ;;
-        pacman:kirigami)          echo "kirigami" ;;
-        pacman:kquickcontrols)    echo "kdeclarative" ;;
-        pacman:qqc2-desktop-style) echo "qqc2-desktop-style" ;;
-        zypper:pyside6)           echo "python3-pyside6" ;;
         zypper:kwindowsystem)     echo "kf6-kwindowsystem libKF6WindowSystem6" ;;
-        zypper:milou)             echo "milou6 milou" ;;
-        zypper:layershell)        echo "layer-shell-qt6 layer-shell-qt" ;;
-        zypper:kirigami)          echo "kf6-kirigami-imports kf6-kirigami" ;;
-        zypper:kquickcontrols)    echo "kf6-kdeclarative-imports kf6-kdeclarative" ;;
-        zypper:qqc2-desktop-style) echo "kf6-qqc2-desktop-style" ;;
-        apt:pyside6)              echo "python3-pyside6.qtcore+python3-pyside6.qtgui+python3-pyside6.qtwidgets+python3-pyside6.qtqml+python3-pyside6.qtquick+python3-pyside6.qtdbus" ;;
         apt:kwindowsystem)        echo "libkf6windowsystem6" ;;
-        apt:milou)                echo "qml6-module-org-kde-milou milou" ;;
-        apt:layershell)           echo "qml6-module-org-kde-layershell layer-shell-qt" ;;
-        apt:kirigami)             echo "qml6-module-org-kde-kirigami" ;;
-        apt:kquickcontrols)       echo "qml6-module-org-kde-kquickcontrols" ;;
-        apt:qqc2-desktop-style)   echo "qml6-module-org-kde-qqc2desktopstyle kf6-qqc2-desktop-style" ;;
+        dnf:qml:Qt*)              echo "qt6-qtdeclarative" ;;
+        pacman:qml:Qt*)           echo "qt6-declarative" ;;
+        zypper:qml:Qt*)           echo "qt6-declarative-imports qt6-declarative" ;;
+        dnf:qml:org.kde.milou)    echo "plasma-milou" ;;
+        pacman:qml:org.kde.milou) echo "milou" ;;
+        zypper:qml:org.kde.milou) echo "milou6 milou" ;;
+        dnf:qml:org.kde.layershell|pacman:qml:org.kde.layershell) echo "layer-shell-qt" ;;
+        zypper:qml:org.kde.layershell) echo "layer-shell-qt6-imports layer-shell-qt6" ;;
+        dnf:qml:org.kde.kirigami) echo "kf6-kirigami" ;;
+        pacman:qml:org.kde.kirigami) echo "kirigami" ;;
+        zypper:qml:org.kde.kirigami) echo "kf6-kirigami-imports kf6-kirigami" ;;
+        dnf:qml:org.kde.kquickcontrols) echo "kf6-kdeclarative" ;;
+        pacman:qml:org.kde.kquickcontrols) echo "kdeclarative" ;;
+        zypper:qml:org.kde.kquickcontrols) echo "kf6-kdeclarative-imports kf6-kdeclarative" ;;
+        dnf:qml:org.kde.desktop|zypper:qml:org.kde.desktop) echo "kf6-qqc2-desktop-style" ;;
+        pacman:qml:org.kde.desktop) echo "qqc2-desktop-style" ;;
+        apt:qml:org.kde.desktop)  echo "qml6-module-org-kde-desktop kf6-qqc2-desktop-style" ;;
+        apt:qml:org.kde.milou)    echo "qml6-module-org-kde-milou milou" ;;
+        apt:qml:*)                key="${lower#qml:}"; echo "qml6-module-${key//./-}" ;;
     esac
 }
 
@@ -223,36 +249,45 @@ install_packages() {
 }
 
 step "$(t "Checking dependencies" "Bağımlılıklar denetleniyor")"
+# Without PySide6 the QML modules cannot be checked yet, so checking and installing is repeated
+# until nothing is missing (at most three rounds).
 missing="$(check_deps)"
 if [ -z "$missing" ]; then
     ok "$(t "All dependencies are installed" "Tüm bağımlılıklar kurulu")"
 else
-    warn "$(t "Missing:" "Eksik:") $missing"
-    [[ " $missing " == *" qt>=6.9 "* ]] && die "$(t "Qt 6.9 or newer is required; please update your system." \
-                                                    "Qt 6.9 ya da daha yeni bir sürüm gerekli; lütfen sisteminizi güncelleyin.")"
     pm=""
     for c in dnf pacman zypper apt-get; do command -v "$c" >/dev/null && { pm="${c%-get}"; break; }; done
-    [ "$INSTALL_DEPS" = 1 ] && [ -n "$pm" ] || die "$(t "Please install the missing components and run the installer again." \
-                                                       "Lütfen eksik bileşenleri kurup kurulumu yeniden çalıştırın.")"
-    packages=()
-    for key in $missing; do
-        found=""
-        for cand in $(candidates "$pm" "$key"); do
-            if pkg_exists "$pm" "${cand%%+*}"; then found="${cand//+/ }"; break; fi
+    for round in 1 2 3; do
+        warn "$(t "Missing:" "Eksik:") $missing"
+        [[ " $missing " == *" qt>=6.9 "* ]] && die "$(t "Qt 6.9 or newer is required; please update your system." \
+                                                        "Qt 6.9 ya da daha yeni bir sürüm gerekli; lütfen sisteminizi güncelleyin.")"
+        [ "$INSTALL_DEPS" = 1 ] && [ -n "$pm" ] || die "$(t "Please install the missing components and run the installer again." \
+                                                           "Lütfen eksik bileşenleri kurup kurulumu yeniden çalıştırın.")"
+        packages=()
+        for key in $missing; do
+            found=""
+            for cand in $(candidates "$pm" "$key"); do
+                if pkg_exists "$pm" "${cand%%+*}"; then found="${cand//+/ }"; break; fi
+            done
+            [ -n "$found" ] || die "$(t "No package found for '$key'. Please install it manually." \
+                                        "'$key' için paket bulunamadı. Lütfen elle kurun.")"
+            # shellcheck disable=SC2206
+            packages+=($found)
         done
-        [ -n "$found" ] || die "$(t "No package found for '$key'. Please install it manually." \
-                                    "'$key' için paket bulunamadı. Lütfen elle kurun.")"
-        # shellcheck disable=SC2206
-        packages+=($found)
+        declare -A seen=(); unique=()
+        for pkg in "${packages[@]}"; do [ -n "${seen[$pkg]:-}" ] || { seen[$pkg]=1; unique+=("$pkg"); }; done
+        packages=("${unique[@]}"); unset seen
+        printf '  %s%s%s\n' "$DIM" "${packages[*]}" "$R"
+        ask "$(t "Install these packages with sudo?" "Bu paketler sudo ile kurulsun mu?")" y \
+            || die "$(t "Cannot continue without the dependencies." "Bağımlılıklar olmadan devam edilemez.")"
+        install_packages "$pm" "${packages[@]}"
+        missing="$(check_deps)"
+        [ -n "$missing" ] || break
     done
-    printf '  %s%s%s\n' "$DIM" "${packages[*]}" "$R"
-    ask "$(t "Install these packages with sudo?" "Bu paketler sudo ile kurulsun mu?")" y \
-        || die "$(t "Cannot continue without the dependencies." "Bağımlılıklar olmadan devam edilemez.")"
-    install_packages "$pm" "${packages[@]}"
-    missing="$(check_deps)"
     [ -z "$missing" ] || die "$(t "Still missing:" "Hâlâ eksik:") $missing"
     ok "$(t "Dependencies installed" "Bağımlılıklar kuruldu")"
 fi
+[ "$DEPS_ONLY" = 0 ] || exit 0
 
 # ── 4. Files ─────────────────────────────────────────────────────────
 step "$(t "Installing Kandil" "Kandil kuruluyor")"

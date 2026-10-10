@@ -39,6 +39,7 @@
   "emoji.recent": "Senast använda",
   "emoji.count": "%1 emoji",
   "ai.noModel": "Servern rapporterade inga modeller",
+  "ai.notRunning": "%1 körs inte på %2. Om det inte är installerat än förklarar guiden nedan hur det ställs in.",
   "ai.refused": "Modellen avböjde att svara på denna begäran.",
   "ai.truncated": "Svaret kortades eftersom det nådde längdgränsen.",
   "ai.thinking": "Tänker …",

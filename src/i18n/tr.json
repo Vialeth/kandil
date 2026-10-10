@@ -39,6 +39,7 @@
   "emoji.recent": "Son kullanılanlar",
   "emoji.count": "%1 emoji",
   "ai.noModel": "Sunucu hiçbir model bildirmedi",
+  "ai.notRunning": "%1 bu adreste çalışmıyor: %2. Henüz kurulu değilse aşağıdaki rehber nasıl kurulacağını anlatıyor.",
   "ai.refused": "Model bu isteği yanıtlamayı reddetti.",
   "ai.truncated": "Yanıt uzunluk sınırına ulaştığı için kesildi.",
   "ai.thinking": "Düşünüyor…",

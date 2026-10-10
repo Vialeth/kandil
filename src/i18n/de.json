@@ -39,6 +39,7 @@
   "emoji.recent": "Zuletzt verwendet",
   "emoji.count": "%1 Emojis",
   "ai.noModel": "Der Server hat keine Modelle gemeldet",
+  "ai.notRunning": "%1 läuft nicht unter %2. Falls es noch nicht installiert ist, erklärt die Anleitung unten die Einrichtung.",
   "ai.refused": "Das Modell hat die Beantwortung dieser Anfrage abgelehnt.",
   "ai.truncated": "Die Antwort wurde abgeschnitten, weil sie die Längenbegrenzung erreicht hat.",
   "ai.thinking": "Denkt nach …",

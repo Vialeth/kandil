@@ -39,6 +39,7 @@
   "emoji.recent": "Dùng gần đây",
   "emoji.count": "%1 biểu tượng cảm xúc",
   "ai.noModel": "Máy chủ không báo mô hình nào",
+  "ai.notRunning": "%1 không chạy tại %2. Nếu chưa được cài đặt, hướng dẫn bên dưới giải thích cách thiết lập.",
   "ai.refused": "Mô hình đã từ chối trả lời yêu cầu này.",
   "ai.truncated": "Câu trả lời bị cắt vì đạt giới hạn độ dài.",
   "ai.thinking": "Đang suy nghĩ…",

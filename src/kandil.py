@@ -1329,6 +1329,14 @@ class Controller(QObject):
             pass
         return reply.errorString()
 
+    def ai_unreachable(self, provider, reply):
+        """Bu bilgisayardaki sunucuya bağlanılamadıysa (ör. Ollama kurulu değil ya da çalışmıyor)
+        anlaşılır bir mesaj döner; arayüz bu durumda yerel yapay zekâ rehberine bağlantı gösterir."""
+        local = QUrl(provider["url"]).host() in ("localhost", "127.0.0.1", "::1")
+        if local and reply.error() in (QNetworkReply.ConnectionRefusedError, QNetworkReply.HostNotFoundError):
+            return self.t("ai.notRunning", provider["name"], QUrl(provider["url"]).authority())
+        return ""
+
     @Slot(str, result=bool)
     def aiHasKey(self, pid):
         provider = self.ai_provider(pid)
@@ -1359,7 +1367,8 @@ class Controller(QObject):
             reply.deleteLater()
             body = bytes(reply.readAll().data()).decode("utf-8", errors="replace")
             if reply.error() != QNetworkReply.NoError:
-                self.aiModelsReady.emit(pid, [], self.ai_error_text(reply, body))
+                self.aiModelsReady.emit(pid, [], self.ai_unreachable(provider, reply)
+                                        or self.ai_error_text(reply, body))
                 return
             try:
                 models = sorted(m["id"] for m in json.loads(body).get("data", []) if m.get("id"))
@@ -1425,7 +1434,9 @@ class Controller(QObject):
         # Yanıtsız kalan soru geçmişten çıkarılır; aksi hâlde art arda iki kullanıcı mesajı oluşur
         if self.ai_chat["messages"] and self.ai_chat["messages"][-1]["role"] == "user":
             self.ai_chat["messages"].pop()
-        self.aiFinished.emit(error, "")
+        provider = self.ai_provider(self.ai_chat["provider"])
+        local_hint = provider and error == self.t("ai.notRunning", provider["name"], QUrl(provider["url"]).authority())
+        self.aiFinished.emit(error, "notRunning" if local_hint else "")
 
     def ai_send(self, provider, model):
         system = self.config["aiSystemPrompt"].strip() or AI_DEFAULT_SYSTEM_PROMPT
@@ -1511,7 +1522,7 @@ class Controller(QObject):
             self.ai_reply = None
             if reply.error() != QNetworkReply.NoError or state["error"]:
                 body = (state["raw"] + bytes(reply.readAll().data())).decode("utf-8", errors="replace")
-                self.ai_fail(state["error"] or self.ai_error_text(reply, body))
+                self.ai_fail(state["error"] or self.ai_unreachable(provider, reply) or self.ai_error_text(reply, body))
                 return
             self.ai_chat["messages"].append({"role": "assistant", "content": state["text"]})
             self.aiFinished.emit("", state["stop"])

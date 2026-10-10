@@ -39,6 +39,7 @@
   "emoji.recent": "Viimeksi käytetyt",
   "emoji.count": "%1 emojia",
   "ai.noModel": "Palvelin ei ilmoittanut malleja",
+  "ai.notRunning": "%1 ei ole käynnissä osoitteessa %2. Jos sitä ei ole vielä asennettu, alla oleva opas kertoo käyttöönotosta.",
   "ai.refused": "Malli kieltäytyi vastaamasta tähän pyyntöön.",
   "ai.truncated": "Vastaus katkesi, koska se saavutti pituusrajan.",
   "ai.thinking": "Miettii…",

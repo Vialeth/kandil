@@ -101,6 +101,7 @@ settings.
 | `--no-deps` | Do not install missing packages |
 | `--shortcut KEYS` | Use a different shortcut, e.g. `"Meta+Space"`, or `none` |
 | `--keep-krunner` | Do not change KRunner's shortcuts |
+| `--deps-only` | Only check and install the dependencies |
 
 ## Usage
 

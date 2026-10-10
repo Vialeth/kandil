@@ -28,7 +28,10 @@ Window {
         rtl = controller.isRtl()
         uiLocale = Qt.locale(controller.activeLanguage())
     }
-    Component.onCompleted: applyLanguage()
+    Component.onCompleted: {
+        configureLayerShell()     // pencere ilk kez gösterilmeden önce
+        applyLanguage()
+    }
 
     // Görünüm ayarları (ayar dosyasından)
     readonly property int panelWidth: config.panelWidth ?? 720
@@ -175,6 +178,7 @@ Window {
     property string aiState: "idle"            // idle | waiting | streaming | done | error
     property string aiError: ""
     property string aiNote: ""
+    property bool aiNotRunning: false
     property bool aiThinking: false
     property real aiStarted: 0
 
@@ -381,9 +385,22 @@ Window {
     LayerShell.Window.layer: LayerShell.Window.LayerTop
     LayerShell.Window.anchors: LayerShell.Window.AnchorTop
     LayerShell.Window.keyboardInteractivity: LayerShell.Window.KeyboardInteractivityOnDemand
-    LayerShell.Window.activateOnShow: true
-    LayerShell.Window.wantsToBeOnActiveScreen: true
     LayerShell.Window.exclusionZone: -1
+
+    // activateOnShow ve wantsToBeOnActiveScreen layer-shell-qt 6.5'te geldi. Eski sürümlerde
+    // (Plasma 6.4) QML'de doğrudan atanırlarsa pencere hiç yüklenmez; bu yüzden var olup
+    // olmadıklarına bakılarak ayarlanır. Eski sürümde klavye odağı Exclusive ile güvenceye alınır.
+    function configureLayerShell() {
+        const ls = root.LayerShell.Window
+        if ("activateOnShow" in ls)
+            ls.activateOnShow = true
+        else
+            ls.keyboardInteractivity = LayerShell.Window.KeyboardInteractivityExclusive
+        if ("wantsToBeOnActiveScreen" in ls)
+            ls.wantsToBeOnActiveScreen = true
+        else if ("screenConfiguration" in ls)
+            ls.screenConfiguration = LayerShell.Window.ScreenFromCompositor
+    }
 
     function open() {
         if (leaving) finishLeaving()
@@ -513,6 +530,7 @@ Window {
                     aiModel.remove(aiModel.count - 1)
                 }
                 root.aiError = error
+                root.aiNotRunning = stop === "notRunning"
                 root.aiState = "error"
             } else {
                 root.aiState = "done"
@@ -656,7 +674,7 @@ Window {
         replayTimeout.restart()
     }
 
-    function tryReplay(final) {
+    function tryReplay(lastTry) {
         if (!pendingReplay) return
         let fallback = -1
         for (let r = 0; r < replayModel.rowCount(); r++) {
@@ -668,7 +686,7 @@ Window {
             if (fallback < 0 && replayModel.data(idx, Qt.DisplayRole) === pendingReplay.display)
                 fallback = r
         }
-        if (final) {
+        if (lastTry) {
             if (fallback >= 0) finishReplay(replayModel.index(fallback, 0))
             else pendingReplay = null
         }
@@ -1714,10 +1732,20 @@ Window {
                 Text {
                     Layout.fillWidth: true
                     visible: root.aiState === "error"
-                    text: root.tr("ai.error", root.aiError)
+                    text: root.aiNotRunning ? root.aiError : root.tr("ai.error", root.aiError)
                     color: Kirigami.Theme.negativeTextColor
                     font.pixelSize: 13
                     wrapMode: Text.WordWrap
+                }
+                // Yerel sunucu yoksa kurulum rehberine bağlantı
+                Text {
+                    visible: root.aiState === "error" && root.aiNotRunning
+                    text: "<a href=\"https://github.com/Vialeth/kandil/blob/main/docs/local-ai.md\">" + root.tr("aiset.guide") + "</a>"
+                    textFormat: Text.StyledText
+                    linkColor: root.accent
+                    font.pixelSize: 13
+                    onLinkActivated: link => root.openExternal(link)
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
                 }
 
                 Flickable {
