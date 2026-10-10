@@ -201,6 +201,7 @@
   "engines.reset": "Keresőmotorok visszaállítása",
   "engines.newName": "Új keresőmotor",
   "aiset.note": "Csatlakoztasson helyi modellt (Ollama, LM Studio, llama.cpp) vagy online szolgáltatást. Írja be a kulcsszót, egy szóközt és a kérdését, például „ai mi a KDE?”.",
+  "aiset.guide": "Útmutató: helyi MI-modell futtatása",
   "aiset.type": "Típus",
   "aiset.typeOpenai": "OpenAI-kompatibilis",
   "aiset.url": "Cím",

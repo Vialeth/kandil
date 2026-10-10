@@ -201,6 +201,7 @@
   "engines.reset": "Tilbakestill søkemotorer",
   "engines.newName": "Ny søkemotor",
   "aiset.note": "Koble til en lokal modell (Ollama, LM Studio, llama.cpp) eller en nettjeneste. Skriv nøkkelordet, et mellomrom og spørsmålet, for eksempel «ai hva er KDE?».",
+  "aiset.guide": "Veiledning: kjør en lokal KI-modell",
   "aiset.type": "Type",
   "aiset.typeOpenai": "OpenAI-kompatibel",
   "aiset.url": "Adresse",

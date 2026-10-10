@@ -201,6 +201,7 @@
   "engines.reset": "검색 엔진 초기화",
   "engines.newName": "새 검색 엔진",
   "aiset.note": "로컬 모델(Ollama, LM Studio, llama.cpp)이나 온라인 서비스를 연결하세요. 키워드, 공백, 질문을 차례로 입력합니다(예: “ai KDE가 뭐야?”).",
+  "aiset.guide": "안내: 로컬 AI 모델 실행하기",
   "aiset.type": "유형",
   "aiset.typeOpenai": "OpenAI 호환",
   "aiset.url": "주소",

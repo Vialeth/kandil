@@ -201,6 +201,7 @@
   "engines.reset": "重設搜尋引擎",
   "engines.newName": "新搜尋引擎",
   "aiset.note": "連接本機模型（Ollama、LM Studio、llama.cpp）或線上服務。輸入關鍵字、空格和問題，例如「ai KDE 是什麼？」。",
+  "aiset.guide": "指南：執行本機 AI 模型",
   "aiset.type": "類型",
   "aiset.typeOpenai": "相容 OpenAI",
   "aiset.url": "位址",

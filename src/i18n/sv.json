@@ -201,6 +201,7 @@
   "engines.reset": "Återställ sökmotorer",
   "engines.newName": "Ny sökmotor",
   "aiset.note": "Anslut en lokal modell (Ollama, LM Studio, llama.cpp) eller en onlinetjänst. Skriv nyckelordet, ett mellanslag och din fråga, till exempel ”ai vad är KDE?”.",
+  "aiset.guide": "Guide: kör en lokal AI-modell",
   "aiset.type": "Typ",
   "aiset.typeOpenai": "OpenAI-kompatibel",
   "aiset.url": "Adress",

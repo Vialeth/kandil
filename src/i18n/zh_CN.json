@@ -201,6 +201,7 @@
   "engines.reset": "重置搜索引擎",
   "engines.newName": "新搜索引擎",
   "aiset.note": "连接本地模型（Ollama、LM Studio、llama.cpp）或在线服务。输入关键词、空格和问题，例如“ai KDE 是什么？”。",
+  "aiset.guide": "指南：运行本地 AI 模型",
   "aiset.type": "类型",
   "aiset.typeOpenai": "OpenAI 兼容",
   "aiset.url": "地址",

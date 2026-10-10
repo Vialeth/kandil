@@ -201,6 +201,7 @@
   "engines.reset": "איפוס מנועי החיפוש",
   "engines.newName": "מנוע חיפוש חדש",
   "aiset.note": "חיבור מודל מקומי (Ollama,‏ LM Studio,‏ llama.cpp) או שירות מקוון. יש להקליד את מילת המפתח, רווח ואת השאלה, למשל “ai מה זה KDE?”.",
+  "aiset.guide": "מדריך: הרצת מודל בינה מלאכותית מקומי",
   "aiset.type": "סוג",
   "aiset.typeOpenai": "תואם OpenAI",
   "aiset.url": "כתובת",

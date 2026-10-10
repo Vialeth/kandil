@@ -201,6 +201,7 @@
   "engines.reset": "Przywróć wyszukiwarki",
   "engines.newName": "Nowa wyszukiwarka",
   "aiset.note": "Połącz lokalny model (Ollama, LM Studio, llama.cpp) lub usługę online. Wpisz słowo kluczowe, spację i pytanie, np. „ai czym jest KDE?”.",
+  "aiset.guide": "Poradnik: uruchamianie lokalnego modelu AI",
   "aiset.type": "Typ",
   "aiset.typeOpenai": "Zgodny z OpenAI",
   "aiset.url": "Adres",

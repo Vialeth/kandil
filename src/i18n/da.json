@@ -201,6 +201,7 @@
   "engines.reset": "Nulstil søgemaskiner",
   "engines.newName": "Ny søgemaskine",
   "aiset.note": "Tilslut en lokal model (Ollama, LM Studio, llama.cpp) eller en onlinetjeneste. Skriv nøgleordet, et mellemrum og dit spørgsmål, f.eks. “ai hvad er KDE?”.",
+  "aiset.guide": "Vejledning: kør en lokal AI-model",
   "aiset.type": "Type",
   "aiset.typeOpenai": "OpenAI-kompatibel",
   "aiset.url": "Adresse",

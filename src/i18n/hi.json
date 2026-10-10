@@ -201,6 +201,7 @@
   "engines.reset": "सर्च इंजन रीसेट करें",
   "engines.newName": "नया सर्च इंजन",
   "aiset.note": "कोई स्थानीय मॉडल (Ollama, LM Studio, llama.cpp) या ऑनलाइन सेवा जोड़ें। कीवर्ड, एक स्पेस और अपना प्रश्न लिखें, जैसे “ai KDE क्या है?”।",
+  "aiset.guide": "गाइड: स्थानीय एआई मॉडल चलाना",
   "aiset.type": "प्रकार",
   "aiset.typeOpenai": "OpenAI-संगत",
   "aiset.url": "पता",

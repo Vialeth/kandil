@@ -201,6 +201,7 @@
   "engines.reset": "بازنشانی موتورهای جستجو",
   "engines.newName": "موتور جستجوی جدید",
   "aiset.note": "یک مدل محلی (Ollama، LM Studio، llama.cpp) یا یک سرویس برخط وصل کنید. کلیدواژه، یک فاصله و پرسش خود را بنویسید؛ مثلاً «ai KDE چیست؟».",
+  "aiset.guide": "راهنما: اجرای یک مدل هوش مصنوعی محلی",
   "aiset.type": "نوع",
   "aiset.typeOpenai": "سازگار با OpenAI",
   "aiset.url": "نشانی",

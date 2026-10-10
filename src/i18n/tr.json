@@ -201,6 +201,7 @@
   "engines.reset": "Arama motorlarını sıfırla",
   "engines.newName": "Yeni arama motoru",
   "aiset.note": "Yerel bir model (Ollama, LM Studio, llama.cpp) ya da çevrim içi bir hizmet bağlayın. Anahtar kelimeyi, bir boşluk ve sorunuzu yazın; örneğin “ai KDE nedir?”.",
+  "aiset.guide": "Rehber: yerel bir yapay zekâ modeli çalıştırma",
   "aiset.type": "Tür",
   "aiset.typeOpenai": "OpenAI uyumlu",
   "aiset.url": "Adres",

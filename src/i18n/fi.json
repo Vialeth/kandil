@@ -201,6 +201,7 @@
   "engines.reset": "Palauta hakukoneet",
   "engines.newName": "Uusi hakukone",
   "aiset.note": "Yhdistä paikallinen malli (Ollama, LM Studio, llama.cpp) tai verkkopalvelu. Kirjoita avainsana, välilyönti ja kysymyksesi, esimerkiksi ”ai mikä on KDE?”.",
+  "aiset.guide": "Opas: paikallisen tekoälymallin käyttö",
   "aiset.type": "Tyyppi",
   "aiset.typeOpenai": "OpenAI-yhteensopiva",
   "aiset.url": "Osoite",

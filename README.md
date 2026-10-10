@@ -176,6 +176,9 @@ installed with Plasma; no additional data is downloaded.
 
 ### AI chat
 
+To run a model on your own computer, see the step-by-step
+[local AI guide](docs/local-ai.md): install Ollama, download a model and ask.
+
 A provider's keyword followed by a space and a question starts a chat, for
 example `ai what is KDE?`. Enter sends the question and the answer streams into
 the panel as formatted text; the next question continues the same conversation.

@@ -201,6 +201,7 @@
   "engines.reset": "إعادة تعيين محركات البحث",
   "engines.newName": "محرك بحث جديد",
   "aiset.note": "اربط نموذجًا محليًا (Ollama وLM Studio وllama.cpp) أو خدمة عبر الإنترنت. اكتب الكلمة المفتاحية ثم مسافة ثم سؤالك، مثل “ai ما هو KDE؟”.",
+  "aiset.guide": "دليل: تشغيل نموذج ذكاء اصطناعي محلي",
   "aiset.type": "النوع",
   "aiset.typeOpenai": "متوافق مع OpenAI",
   "aiset.url": "العنوان",

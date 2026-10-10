@@ -749,6 +749,10 @@ QQC2.ApplicationWindow {
                         wrapMode: Text.WordWrap
                         text: win.tr("aiset.note")
                     }
+                    Kirigami.UrlButton {
+                        text: win.tr("aiset.guide")
+                        url: "https://github.com/Vialeth/kandil/blob/main/docs/local-ai.md"
+                    }
 
                     Repeater {
                         model: win.cfg.aiProviders

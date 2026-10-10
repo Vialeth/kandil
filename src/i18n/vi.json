@@ -201,6 +201,7 @@
   "engines.reset": "Đặt lại công cụ tìm kiếm",
   "engines.newName": "Công cụ tìm kiếm mới",
   "aiset.note": "Kết nối một mô hình cục bộ (Ollama, LM Studio, llama.cpp) hoặc dịch vụ trực tuyến. Nhập từ khóa, dấu cách và câu hỏi, ví dụ “ai KDE là gì?”.",
+  "aiset.guide": "Hướng dẫn: chạy mô hình AI cục bộ",
   "aiset.type": "Loại",
   "aiset.typeOpenai": "Tương thích OpenAI",
   "aiset.url": "Địa chỉ",

@@ -201,6 +201,7 @@
   "engines.reset": "Réinitialiser les moteurs de recherche",
   "engines.newName": "Nouveau moteur de recherche",
   "aiset.note": "Connectez un modèle local (Ollama, LM Studio, llama.cpp) ou un service en ligne. Saisissez le mot-clé, une espace et votre question, par exemple « ai qu’est-ce que KDE ? ».",
+  "aiset.guide": "Guide : exécuter un modèle d’IA local",
   "aiset.type": "Type",
   "aiset.typeOpenai": "Compatible OpenAI",
   "aiset.url": "Adresse",

@@ -201,6 +201,7 @@
   "engines.reset": "Resetează motoarele de căutare",
   "engines.newName": "Motor de căutare nou",
   "aiset.note": "Conectați un model local (Ollama, LM Studio, llama.cpp) sau un serviciu online. Tastați cuvântul-cheie, un spațiu și întrebarea, de exemplu „ai ce este KDE?”.",
+  "aiset.guide": "Ghid: rularea unui model IA local",
   "aiset.type": "Tip",
   "aiset.typeOpenai": "Compatibil cu OpenAI",
   "aiset.url": "Adresă",

@@ -201,6 +201,7 @@
   "engines.reset": "Obnovit vyhledávače",
   "engines.newName": "Nový vyhledávač",
   "aiset.note": "Připojte místní model (Ollama, LM Studio, llama.cpp) nebo online službu. Napište klíčové slovo, mezeru a otázku, například „ai co je KDE?“.",
+  "aiset.guide": "Návod: spuštění místního modelu AI",
   "aiset.type": "Typ",
   "aiset.typeOpenai": "Kompatibilní s OpenAI",
   "aiset.url": "Adresa",

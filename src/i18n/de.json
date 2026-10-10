@@ -201,6 +201,7 @@
   "engines.reset": "Suchmaschinen zurücksetzen",
   "engines.newName": "Neue Suchmaschine",
   "aiset.note": "Verbinden Sie ein lokales Modell (Ollama, LM Studio, llama.cpp) oder einen Onlinedienst. Geben Sie das Schlüsselwort, ein Leerzeichen und Ihre Frage ein, z. B. „ai was ist KDE?“.",
+  "aiset.guide": "Anleitung: ein lokales KI-Modell betreiben",
   "aiset.type": "Typ",
   "aiset.typeOpenai": "OpenAI-kompatibel",
   "aiset.url": "Adresse",

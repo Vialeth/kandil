@@ -201,6 +201,7 @@
   "engines.reset": "検索エンジンをリセット",
   "engines.newName": "新しい検索エンジン",
   "aiset.note": "ローカルモデル（Ollama、LM Studio、llama.cpp）またはオンラインサービスに接続します。キーワード、スペース、質問の順に入力します（例: 「ai KDE とは？」）。",
+  "aiset.guide": "ガイド: ローカル AI モデルの実行",
   "aiset.type": "種類",
   "aiset.typeOpenai": "OpenAI 互換",
   "aiset.url": "アドレス",

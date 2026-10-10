@@ -201,6 +201,7 @@
   "engines.reset": "Axtarış sistemlərini sıfırla",
   "engines.newName": "Yeni axtarış sistemi",
   "aiset.note": "Yerli model (Ollama, LM Studio, llama.cpp) və ya onlayn xidmət qoşun. Açar sözü, boşluq və sualınızı yazın, məsələn “ai KDE nədir?”.",
+  "aiset.guide": "Bələdçi: yerli süni intellekt modelinin işə salınması",
   "aiset.type": "Növ",
   "aiset.typeOpenai": "OpenAI ilə uyğun",
   "aiset.url": "Ünvan",

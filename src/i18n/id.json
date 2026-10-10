@@ -201,6 +201,7 @@
   "engines.reset": "Atur ulang mesin pencari",
   "engines.newName": "Mesin pencari baru",
   "aiset.note": "Hubungkan model lokal (Ollama, LM Studio, llama.cpp) atau layanan daring. Ketik kata kunci, spasi, lalu pertanyaan Anda, misalnya “ai apa itu KDE?”.",
+  "aiset.guide": "Panduan: menjalankan model AI lokal",
   "aiset.type": "Jenis",
   "aiset.typeOpenai": "Kompatibel dengan OpenAI",
   "aiset.url": "Alamat",

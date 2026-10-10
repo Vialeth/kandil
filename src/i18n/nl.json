@@ -201,6 +201,7 @@
   "engines.reset": "Zoekmachines herstellen",
   "engines.newName": "Nieuwe zoekmachine",
   "aiset.note": "Koppel een lokaal model (Ollama, LM Studio, llama.cpp) of een onlinedienst. Typ het trefwoord, een spatie en je vraag, bijvoorbeeld ‘ai wat is KDE?’.",
+  "aiset.guide": "Handleiding: een lokaal AI-model draaien",
   "aiset.type": "Type",
   "aiset.typeOpenai": "OpenAI-compatibel",
   "aiset.url": "Adres",
