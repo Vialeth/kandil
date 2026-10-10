@@ -150,10 +150,10 @@ Window {
         }
     }
 
-    // Sonuçlarda dosya/klasör varsa kart sağa doğru genişler ve önizleme paneli açılır
-    property bool hasFileResults: false
+    // Sonuç varsa kart sağa doğru genişler ve seçili sonucun önizleme paneli açılır
+    property bool hasResults: false
     readonly property bool previewMode: previewWidth > 0
-        && ((listKind === "results" && hasFileResults) || (listKind === "clip" && list.count > 0))
+        && ((listKind === "results" && hasResults) || (listKind === "clip" && list.count > 0))
     property var previewInfo: ({})
     onPreviewModeChanged: refreshPreview()
 
@@ -229,7 +229,7 @@ Window {
         if (config.rememberQuery !== true || listKind === "help") {
             field.text = ""
             results.clear()
-            hasFileResults = false
+            hasResults = false
             mode = ""
         }
         controller.cancelCommand()
@@ -463,19 +463,12 @@ Window {
         }
     }
 
-    function scanFiles() {
+    function scanResults() {
         if (list.currentIndex < 0 && list.count > 0) list.currentIndex = 0
-        let found = false
-        for (let r = 0; r < results.rowCount(); r++) {
-            if (String(results.data(results.index(r, 0), Milou.ResultsModel.IdRole)).startsWith("file://")) {
-                found = true
-                break
-            }
-        }
-        if (found) {
+        if (results.rowCount() > 0) {
             narrowDelay.stop()
-            hasFileResults = true
-        } else if (hasFileResults) {
+            hasResults = true
+        } else if (hasResults) {
             narrowDelay.restart()
         }
         refreshPreview()
@@ -485,12 +478,7 @@ Window {
     Timer {
         id: narrowDelay
         interval: 220
-        onTriggered: {
-            for (let r = 0; r < results.rowCount(); r++)
-                if (String(results.data(results.index(r, 0), Milou.ResultsModel.IdRole)).startsWith("file://"))
-                    return
-            root.hasFileResults = false
-        }
+        onTriggered: if (results.rowCount() === 0) root.hasResults = false
     }
 
     function refreshPreview() {
@@ -522,14 +510,14 @@ Window {
         }
         onModelReset: {
             list.currentIndex = 0
-            Qt.callLater(root.scanFiles)
+            Qt.callLater(root.scanResults)
         }
         onRowsInserted: {
             if (list.currentIndex < 0) list.currentIndex = 0
-            Qt.callLater(root.scanFiles)
+            Qt.callLater(root.scanResults)
             if (root.runWhenReady) Qt.callLater(root.flushPendingRun)
         }
-        onRowsRemoved: Qt.callLater(root.scanFiles)
+        onRowsRemoved: Qt.callLater(root.scanResults)
         onQueryingChanged: {
             root.syncHeight()
             if (!querying && root.runWhenReady) Qt.callLater(root.flushPendingRun)

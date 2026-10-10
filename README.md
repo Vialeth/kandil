@@ -31,8 +31,8 @@ The code was written by Claude Opus 5.5.
 - Ctrl+1 to Ctrl+9 open the first nine results directly.
 - Calculator and unit converter results are shown in a larger row; Enter copies
   the result.
-- A preview panel for files: image thumbnails, the first lines of text files,
-  folder contents, size and modification date.
+- A preview panel for the selected result; for files it shows image thumbnails,
+  the first lines of text files, folder contents, size and modification date.
 - Prefixes that limit the search to one source, for example `f` for files.
 - Clipboard history search through Klipper.
 - Running a shell command and showing its output in the panel.
