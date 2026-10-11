@@ -1277,8 +1277,16 @@ Window {
                             && (matchId.startsWith("calculator_")
                                 || (matchId === "unitconverter" && (index === 0 || root.idAt(index - 1) !== "unitconverter")))
 
+                        // Yükseklik bir olay döngüsü gecikmeyle uygulanır. Model satır silerken (DelegateModel
+                        // tüm önbellek öğelerini geçici olarak kilitliyken) index -1 olur; seçili satırın boyu o anda
+                        // değişirse ListView vurgu için bekleyen değişiklikleri uygular, kilitli satırı bırakamaz ve
+                        // satırı bölüm başlığıyla birlikte sahipsiz bırakır ("hayalet" satır, Qt 6.11).
+                        readonly property real wantedHeight: isHero ? root.heroHeight : Math.max(root.rowHeight, textCol.implicitHeight + 16)
+                        function syncHeight() { if (index >= 0) height = wantedHeight }
+                        onWantedHeightChanged: Qt.callLater(syncHeight)
+                        Component.onCompleted: height = wantedHeight
+
                         width: list.rowWidth
-                        height: isHero ? root.heroHeight : Math.max(root.rowHeight, textCol.implicitHeight + 16)
 
                         HoverHandler {
                             enabled: root.config.hoverSelect !== false
