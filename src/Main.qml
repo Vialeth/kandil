@@ -57,6 +57,19 @@ Window {
     property int activeAction: -1
     property bool runWhenReady: false
     property bool ctrlHeld: false
+    // Fareyle seçim yalnızca imleç gerçekten hareket edince yapılır. Sonuçlar duran imlecin altına
+    // gelince Qt yeni satıra aynı konumla üzerine gelme olayı gönderir; bu seçim sayılmaz.
+    property var hoverAnchor: null
+
+    function hoverAt(pos, index) {
+        if (hoverAnchor === null) {
+            hoverAnchor = Qt.point(pos.x, pos.y)
+            return
+        }
+        if (pos.x === hoverAnchor.x && pos.y === hoverAnchor.y) return
+        hoverAnchor = Qt.point(pos.x, pos.y)
+        list.currentIndex = index
+    }
 
     // Önek modu: "f rapor" yazılınca etiket "Dosyalar" olur ve arama yalnızca o kaynakta yapılır.
     // mode, modun kimliğini (files, clipboard, help, özel…) tutar.
@@ -408,6 +421,7 @@ Window {
         const scr = root.screen ?? Qt.application.screens[0]
         controller.setTopMargin(root.LayerShell.Window, Math.round(scr.height * topRatio) - shadowMargin)
         loadHistory()
+        hoverAnchor = null
         animateSize = false
         shownHeight = naturalHeight
         animateSize = true
@@ -1290,7 +1304,9 @@ Window {
 
                         HoverHandler {
                             enabled: root.config.hoverSelect !== false
-                            onHoveredChanged: if (hovered) list.currentIndex = row.index
+                            readonly property point scenePos: point.scenePosition
+                            onHoveredChanged: if (hovered) root.hoverAt(scenePos, row.index)
+                            onScenePosChanged: if (hovered) root.hoverAt(scenePos, row.index)
                         }
                         TapHandler {
                             onTapped: {
