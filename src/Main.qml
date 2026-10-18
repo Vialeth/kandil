@@ -1304,8 +1304,9 @@ Window {
 
                         HoverHandler {
                             enabled: root.config.hoverSelect !== false
+                            // hovered, point güncellenmeden önce değişir (konum o an 0,0 ya da eskidir);
+                            // bu yüzden yalnızca konum değişimi dinlenir
                             readonly property point scenePos: point.scenePosition
-                            onHoveredChanged: if (hovered) root.hoverAt(scenePos, row.index)
                             onScenePosChanged: if (hovered) root.hoverAt(scenePos, row.index)
                         }
                         TapHandler {
