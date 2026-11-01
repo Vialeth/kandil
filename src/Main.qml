@@ -55,7 +55,13 @@ Window {
     readonly property color faintColor: Qt.alpha(Kirigami.Theme.textColor, 0.10)
 
     property int activeAction: -1
-    property bool runWhenReady: false
+    // KRunner yeni sorgunun sonuçlarını gönderene kadar (her tuşta yeniden başlayan ~250 ms'lik
+    // bekleme ya da tüm eklentilerin bitmesi) model önceki sorgunun satırlarını göstermeye devam eder.
+    // Hızlı yazıp Enter'a basınca eski listenin ilk satırı açılmasın diye listenin alandaki metne ait
+    // olup olmadığı izlenir; değilse çalıştırma isteği (pendingRun) yeni sonuçlar gelene kadar bekletilir.
+    property bool resultsFresh: true
+    property int queryGeneration: 0
+    property var pendingRun: null      // { index, shift }
     property bool ctrlHeld: false
     // Fareyle seçim yalnızca imleç gerçekten hareket edince yapılır. Sonuçlar duran imlecin altına
     // gelince Qt yeni satıra aynı konumla üzerine gelme olayı gönderir; bu seçim sayılmaz.
@@ -437,7 +443,7 @@ Window {
     function close() {
         root.visible = false
         if (leaving) finishLeaving()
-        runWhenReady = false
+        cancelPendingRun()
         activeAction = -1
         ctrlHeld = false
         // "Son aramayı hatırla" açıksa metin, mod ve sonuçlar bir sonraki açılışa kalır
@@ -790,7 +796,9 @@ Window {
         const idx = results.index(i, 0)
         recordRow(i)
         let ok
-        if (shift && currentActions().length > 0) {
+        // Eylemler delegeden değil modelden okunur: bekletilmiş çalıştırmada yeni satırın delegesi
+        // henüz oluşturulmamış olabilir.
+        if (shift && (results.data(idx, Milou.ResultsModel.ActionsRole) ?? []).length > 0) {
             ok = results.runAction(idx, 0)
         } else if (activeAction >= 0) {
             ok = results.runAction(idx, activeAction)
@@ -809,11 +817,80 @@ Window {
             runCommand()
             return
         }
-        if (list.count === 0) {
-            if (listKind === "results" && (results.querying || field.text.length > 0)) runWhenReady = true
+        // Liste henüz yazılan metne ait değilse seçim de eski listeye aittir; yeni listenin ilk sonucu açılır
+        if (listKind === "results" && (!resultsFresh || list.count === 0)) {
+            if (!resultsFresh || results.querying) deferRun(0, shift)
             return
         }
+        if (list.count === 0) return
         runIndex(list.currentIndex, shift)
+    }
+
+    // Ctrl+1…9 da aynı korumadan geçer: n. satır, yazılan metnin n. sonucu olmalı
+    function runNumber(n) {
+        if (listKind === "results" && !resultsFresh) {
+            deferRun(n, false)
+            return
+        }
+        if (n >= list.count) return
+        list.currentIndex = n
+        activeAction = -1
+        runIndex(n, false)
+    }
+
+    function deferRun(index, shift) {
+        pendingRun = { index: index, shift: shift }
+        pendingRunTimeout.restart()
+    }
+
+    function cancelPendingRun() {
+        pendingRun = null
+        pendingRunTimeout.stop()
+    }
+
+    function flushPendingRun() {
+        const p = pendingRun
+        if (!p || !resultsFresh) return
+        if (listKind !== "results") {
+            cancelPendingRun()
+            return
+        }
+        if (list.count === 0) {
+            // Eklentiler hâlâ çalışıyorsa sonraki sonuç paketini bekle; bittiyse açılacak bir şey yok
+            if (!results.querying) cancelPendingRun()
+            return
+        }
+        cancelPendingRun()
+        if (p.index >= list.count) return
+        list.currentIndex = p.index
+        activeAction = -1
+        runIndex(p.index, p.shift)
+    }
+
+    // matchesChanged işleyicisi modelin kendi güncellemesinden ÖNCE çağrılır (satırlar o anda hâlâ
+    // eskidir); bu yüzden tazelik bir sonraki olay döngüsünde ve sorgu bu arada değişmediyse işaretlenir.
+    Connections {
+        target: results.runnerManager
+        function onMatchesChanged() {
+            const generation = root.queryGeneration
+            Qt.callLater(() => {
+                if (generation !== root.queryGeneration) return
+                root.resultsFresh = true
+                root.flushPendingRun()
+            })
+        }
+    }
+
+    // Güvenlik ağı: KRunner bir sorgu için hiç matchesChanged göndermezse istek sonsuza dek beklemesin
+    Timer {
+        id: pendingRunTimeout
+        interval: 1500
+        onTriggered: {
+            if (!root.pendingRun) return
+            root.resultsFresh = true
+            root.flushPendingRun()
+            root.cancelPendingRun()
+        }
     }
 
     function moveCategory(step) {
@@ -894,6 +971,11 @@ Window {
             field.text = text
             field.cursorPosition = pos
         }
+        // Yalnızca gerçekten yeni bir sorgu başlatıldığında yayılır (boşluk farkı yeni sorgu sayılmaz)
+        onQueryStringChanged: {
+            root.queryGeneration++
+            root.resultsFresh = queryString.trim() === ""
+        }
         onModelReset: {
             list.currentIndex = 0
             Qt.callLater(root.scanResults)
@@ -901,20 +983,12 @@ Window {
         onRowsInserted: {
             if (list.currentIndex < 0) list.currentIndex = 0
             Qt.callLater(root.scanResults)
-            if (root.runWhenReady) Qt.callLater(root.flushPendingRun)
         }
         onRowsRemoved: Qt.callLater(root.scanResults)
         onQueryingChanged: {
             root.syncHeight()
-            if (!querying && root.runWhenReady) Qt.callLater(root.flushPendingRun)
+            if (!querying && root.pendingRun) Qt.callLater(root.flushPendingRun)
         }
-    }
-
-    function flushPendingRun() {
-        if (!runWhenReady || list.count === 0) return
-        runWhenReady = false
-        list.currentIndex = 0
-        runCurrent(false)
     }
 
     // ── Görünüm ──────────────────────────────────────────────────────
@@ -1018,6 +1092,8 @@ Window {
                     selectionColor: Qt.alpha(root.accent, 0.5)
                     selectByMouse: true
                     onTextChanged: {
+                        // Enter'dan sonra yazmaya devam edilirse bekleyen istek eski metne aittir
+                        root.cancelPendingRun()
                         if (root.detectPrefix()) return
                         root.activeAction = -1
                         list.currentIndex = 0
@@ -1043,12 +1119,7 @@ Window {
                         }
                         // Ctrl+1…9: ilgili sonucu doğrudan aç
                         if (ctrl && event.key >= Qt.Key_1 && event.key <= Qt.Key_9) {
-                            const n = event.key - Qt.Key_1
-                            if (n < list.count) {
-                                list.currentIndex = n
-                                root.activeAction = -1
-                                root.runIndex(n, false)
-                            }
+                            root.runNumber(event.key - Qt.Key_1)
                             event.accepted = true
                             return
                         }
@@ -1312,7 +1383,9 @@ Window {
                         TapHandler {
                             onTapped: {
                                 list.currentIndex = row.index
-                                root.runCurrent(false)
+                                // Tıklama görünen satırı seçer; liste eski olsa bile bekletilmez
+                                if (root.listKind === "results") root.runIndex(row.index, false)
+                                else root.runCurrent(false)
                             }
                         }
 
